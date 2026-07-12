@@ -1,0 +1,64 @@
+======================================================================
+Dyna-Q Acceleration Validation Report
+======================================================================
+
+Experiment Time: 2026-07-11 18:15:13
+Training Episodes: 500
+Case: 1
+
+======================================================================
+RESULTS SUMMARY
+======================================================================
+
+--- MADDPG ---
+Final Average Reward (last 50): -8429.17
+Best Reward: -1.01
+Worst Reward: -32201.20
+Standard Deviation: 8626.06
+
+--- Hierarchical (MADDPG+DQN, no Dyna-Q) ---
+Final Average Reward (last 50): -1089.76
+Best Reward: -0.61
+Worst Reward: -8801.13
+Standard Deviation: 1523.02
+
+--- Hierarchical (Dyna-Q) ---
+Final Average Reward (last 50): -4668.81
+Best Reward: -0.62
+Worst Reward: -31702.70
+Standard Deviation: 7354.53
+
+======================================================================
+DYNA-Q ACCELERATION EFFECT ANALYSIS
+======================================================================
+
+Performance Improvement:
+  MADDPG -> MADDPG+DQN: 87.07%
+  MADDPG+DQN -> Dyna-Q: -328.43%
+  MADDPG -> Dyna-Q: 44.61%
+
+Dyna-Q Contribution:
+  Pure Hierarchical (MADDPG+DQN) Final Reward: -1089.76
+  With Dyna-Q Model Planning Final Reward: -4668.81
+  Dyna-Q Improvement: -328.43%
+
+CONCLUSION: Dyna-Q framework does not show clear acceleration effect.
+Possible reasons: model prediction error, insufficient training,
+or Dyna-K parameter needs tuning.
+
+======================================================================
+CONFIGURATION
+======================================================================
+
+System Parameters:
+  - Number of UAVs (N): 3
+  - Number of Ground Users (M): 6
+  - Number of Resource Blocks (F): 4
+
+Training Parameters:
+  - Learning Rate: 1e-4
+  - Gamma: 0.95
+  - Tau: 0.01
+  - Batch Size: 32
+  - Memory Size: 2000
+  - Dyna-K: 5

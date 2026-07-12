@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Conda environments
+*.conda
+*.yml
+environment.yml
+.conda/
+conda-lock.yml
+
+# Virtual environments
+venv/
+env/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Results (training results are generated during training)
+# Keep core results but ignore generated files during training
+results/*.npy
+results/*.png
+
+# Models
+models/
+*.pth
+*.pt
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# SSH and credentials
+ssh.txt
+*.key
+*.pem
+id_rsa
+id_ecdsa
+id_ed25519
+
+# Windows
+*.exe
+*.dll
+*.bat
+*.cmd
+
+# macOS
+*.dmg
+*.app
+
+# Linux
+*.so
+
+# CUDA
+*.cu
+*.cubin
+*.ptx
+
+# TensorBoard
+runs/
+
+# Matplotlib
+*.pdf
+*.svg
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
