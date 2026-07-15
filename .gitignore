@@ -7,7 +7,6 @@ __pycache__/
 
 # Conda environments
 *.conda
-*.yml
 environment.yml
 .conda/
 conda-lock.yml
@@ -33,6 +32,14 @@ logs/
 # Keep core results but ignore generated files during training
 results/*.npy
 results/*.png
+results/k_experiments/
+results/remote_k_experiments/
+results/deploy_*/
+results/**/*.npy
+results/**/*.png
+results/**/*.pt
+results/**/metrics.csv
+results/**/training.log
 
 # Models
 models/
@@ -50,6 +57,19 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# Test and coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Generated office documents (keep Markdown sources in Git)
+reports/*.docx
 
 # SSH and credentials
 ssh.txt
