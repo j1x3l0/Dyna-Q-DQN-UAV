@@ -133,10 +133,7 @@ def train_hierarchical_no_dyna_test(case=1, episodes=500):
                 break
         
         rewards_history.append(total_reward)
-        agent.step_episode_schedulers()
-        
-        if hasattr(agent, 'epsilon') and hasattr(agent, 'epsilon_decay') and hasattr(agent, 'epsilon_min'):
-            agent.epsilon = max(agent.epsilon_min, agent.epsilon * agent.epsilon_decay)
+        agent.end_episode()
         
         if episode % 50 == 0:
             avg_reward = np.mean(rewards_history[-50:]) if len(rewards_history) >= 50 else total_reward
@@ -197,10 +194,7 @@ def train_hierarchical_dyna_test(case=1, episodes=500):
                 break
         
         rewards_history.append(total_reward)
-        agent.step_episode_schedulers()
-        
-        if hasattr(agent, 'epsilon') and hasattr(agent, 'epsilon_decay') and hasattr(agent, 'epsilon_min'):
-            agent.epsilon = max(agent.epsilon_min, agent.epsilon * agent.epsilon_decay)
+        agent.end_episode()
         
         if episode % 50 == 0:
             avg_reward = np.mean(rewards_history[-50:]) if len(rewards_history) >= 50 else total_reward

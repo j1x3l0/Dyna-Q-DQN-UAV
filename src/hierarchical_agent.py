@@ -98,25 +98,23 @@ class Model(nn.Module):
         return reward, next_state
 
 class HierarchicalAgent:
-    def __init__(self, state_dim, action_dim, num_agents, config, dyna_k=None):
+    def __init__(self, state_dim, action_dim, num_agents, config, seed=None, dyna_k=None):
         logger.info("=" * 60)
         logger.info("Initializing HierarchicalAgent...")
         logger.info("=" * 60)
-        
+
         self.config = config
         self.num_agents = num_agents
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        torch.manual_seed(config.torch_seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(config.torch_seed)
-        self.action_rng = config.rngs['action']
-        self.replay_rng = config.rngs['replay']
-        self.model_rng = config.rngs['model']
-        self.dyna_rng = config.rngs['dyna']
-        self.dyna_k = config.dyna_k if dyna_k is None else dyna_k
-        
+        rng_sequences = np.random.SeedSequence(seed).spawn(4)
+        self.action_rng = np.random.default_rng(rng_sequences[0])
+        self.replay_rng = np.random.default_rng(rng_sequences[1])
+        self.model_rng = np.random.default_rng(rng_sequences[2])
+        self.dyna_rng = np.random.default_rng(rng_sequences[3])
+        self.dyna_k = getattr(config, "dyna_k", 1) if dyna_k is None else dyna_k
+
         logger.info(f"Hierarchical params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
         
         logger.info("Creating upper-layer actor networks...")
@@ -156,9 +154,12 @@ class HierarchicalAgent:
         if self.dyna_k > 0:
             logger.info("Creating Dyna-Q model networks...")
             self.models = [Model(state_dim, 2 * config.M).to(self.device) for _ in range(num_agents)]
-            
+
             logger.info("Creating model optimizers...")
-            self.model_optimizers = [optim.Adam(self.models[i].parameters(), lr=1e-4) for i in range(num_agents)]
+            self.model_optimizers = [
+                optim.Adam(self.models[i].parameters(), lr=1e-4)
+                for i in range(num_agents)
+            ]
         else:
             self.models = []
             self.model_optimizers = []
@@ -167,10 +168,10 @@ class HierarchicalAgent:
         self.upper_actor_schedulers = [optim.lr_scheduler.StepLR(self.upper_actor_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
         self.upper_critic_schedulers = [optim.lr_scheduler.StepLR(self.upper_critic_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
         self.lower_schedulers = [optim.lr_scheduler.StepLR(self.lower_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
-        if self.dyna_k > 0:
-            self.model_schedulers = [optim.lr_scheduler.StepLR(self.model_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
-        else:
-            self.model_schedulers = []
+        self.model_schedulers = [
+            optim.lr_scheduler.StepLR(self.model_optimizers[i], step_size=500, gamma=0.9)
+            for i in range(num_agents)
+        ] if self.dyna_k > 0 else []
         
         logger.info("Initializing upper-layer replay memory...")
         self.upper_memory = deque(maxlen=10000)
@@ -439,9 +440,11 @@ class HierarchicalAgent:
             return
         if k is None:
             k = self.dyna_k
-        
+
         if k <= 0:
+            logger.debug(f"dyna_plan({agent_idx}) skipped: k={k}")
             return
+
         if len(self.lower_memory[agent_idx]) < k:
             logger.debug(f"dyna_plan({agent_idx}) skipped: memory size {len(self.lower_memory[agent_idx])} < k={k}")
             return
@@ -483,13 +486,19 @@ class HierarchicalAgent:
         
         logger.debug(f"dyna_plan({agent_idx}) completed: avg_loss={total_loss/k:.6f}, k={k}")
 
-    def step_episode_schedulers(self):
-        for i in range(self.num_agents):
-            self.upper_actor_schedulers[i].step()
-            self.upper_critic_schedulers[i].step()
-            self.lower_schedulers[i].step()
-            if self.dyna_k > 0 and self.model_schedulers:
-                self.model_schedulers[i].step()
+    def end_episode(self, step_model_scheduler=True):
+        """Advance episode-level exploration and learning-rate schedules."""
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        scheduler_groups = [
+            self.upper_actor_schedulers,
+            self.upper_critic_schedulers,
+            self.lower_schedulers,
+        ]
+        if step_model_scheduler:
+            scheduler_groups.append(self.model_schedulers)
+        for schedulers in scheduler_groups:
+            for scheduler in schedulers:
+                scheduler.step()
     
     def soft_update(self, source, target):
         for source_param, target_param in zip(source.parameters(), target.parameters()):
@@ -497,7 +506,7 @@ class HierarchicalAgent:
 
 
 class HierarchicalNoDynaAgent:
-    def __init__(self, state_dim, action_dim, num_agents, config):
+    def __init__(self, state_dim, action_dim, num_agents, config, seed=None):
         logger.info("=" * 60)
         logger.info("Initializing HierarchicalNoDynaAgent (without Dyna-Q)...")
         logger.info("=" * 60)
@@ -507,11 +516,9 @@ class HierarchicalNoDynaAgent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        torch.manual_seed(config.torch_seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(config.torch_seed)
-        self.action_rng = config.rngs['action']
-        self.replay_rng = config.rngs['replay']
+        rng_sequences = np.random.SeedSequence(seed).spawn(2)
+        self.action_rng = np.random.default_rng(rng_sequences[0])
+        self.replay_rng = np.random.default_rng(rng_sequences[1])
         
         logger.info(f"HierarchicalNoDyna params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
         
@@ -729,11 +736,16 @@ class HierarchicalNoDynaAgent:
         self.lower_optimizers[agent_idx].step()
         self.soft_update(self.lower_dqns[agent_idx], self.target_lower_dqns[agent_idx])
 
-    def step_episode_schedulers(self):
-        for i in range(self.num_agents):
-            self.upper_actor_schedulers[i].step()
-            self.upper_critic_schedulers[i].step()
-            self.lower_schedulers[i].step()
+    def end_episode(self):
+        """Advance episode-level exploration and learning-rate schedules."""
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        for schedulers in (
+            self.upper_actor_schedulers,
+            self.upper_critic_schedulers,
+            self.lower_schedulers,
+        ):
+            for scheduler in schedulers:
+                scheduler.step()
     
     def soft_update(self, source, target):
         for source_param, target_param in zip(source.parameters(), target.parameters()):

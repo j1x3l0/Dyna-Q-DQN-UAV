@@ -86,7 +86,7 @@ def train_hierarchical(case=1, episodes=50000):
                 break
         
         rewards_history.append(total_reward)
-        agent.step_episode_schedulers()
+        agent.end_episode()
         
         if episode % 1000 == 0:
             training_logger.info(f"Episode {episode}, Total Reward: {total_reward:.2f}")
