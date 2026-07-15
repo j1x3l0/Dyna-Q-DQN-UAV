@@ -1,67 +1,35 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "=========================================="
-echo "  UAV-Assisted Wireless Sensor Networks"
-echo "  Deep Reinforcement Learning Training"
-echo "=========================================="
+cd "$(dirname "$0")"
 
-echo ""
-echo "Step 1: Check GPU status"
-nvidia-smi
-echo ""
+PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
+EPISODES="${EPISODES:-1000}"
+LOG_FILE="${LOG_FILE:-k_experiment.log}"
 
-echo "Step 2: Check Python environment"
-python3 --version
-echo ""
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  echo "Python environment not found: $PYTHON_BIN" >&2
+  echo "Create it first and install requirements; see readme.md." >&2
+  exit 1
+fi
 
-echo "Step 3: Install CUDA version PyTorch (GPU accelerated)"
-echo "  - Check above for CUDA Version in nvidia-smi output"
-echo "  - Choose the appropriate command below:"
-echo ""
-echo "  For CUDA 12.1 (recommended):"
-echo "    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121"
-echo ""
-echo "  For CUDA 11.8:"
-echo "    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118"
-echo ""
-echo "  Then install other dependencies:"
-echo "    pip install numpy matplotlib"
-echo ""
+mkdir -p results/k_experiments
 
-echo "Step 4: Create results and logs directories"
-mkdir -p results logs
-echo ""
+echo "Starting k=0/1/3 x seeds=42/123/2026, episodes=$EPISODES"
+echo "Log: $LOG_FILE"
 
-echo "=========================================="
-echo "  Available Training Scripts:"
-echo "  ----------------------------"
-echo "  1. train_all.py          - k sweep (0/1/3) x seeds (42/123/2026)"
-echo "  2. train_maddpg.py       - Pure MADDPG"
-echo "  3. train_hierarchical.py - MADDPG + Dyna-Q"
-echo "  4. run_hierarchical_no_dyna.py - MADDPG + DQN (no Dyna)"
-echo "=========================================="
-echo ""
+nohup env \
+  OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}" \
+  MKL_NUM_THREADS="${MKL_NUM_THREADS:-4}" \
+  OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-4}" \
+  "$PYTHON_BIN" scripts/run_k_experiment.py \
+    --k-values 0 1 3 \
+    --seeds 42 123 2026 \
+    --episodes "$EPISODES" \
+    --case 1 \
+    > "$LOG_FILE" 2>&1 &
 
-echo "=========================================="
-echo "  RECOMMENDED: Run ALL THREE approaches"
-echo "  (500 episodes each run + summary report)"
-echo "=========================================="
-echo ""
-echo "Run in foreground:"
-echo "  python3 scripts/train_all.py"
-echo ""
-echo "Run in background (recommended):"
-echo "  nohup python3 scripts/train_all.py > train_all.log 2>&1 &"
-echo ""
-echo "Run individual approaches:"
-echo "  nohup python3 scripts/train_maddpg.py > maddpg.log 2>&1 &"
-echo "  nohup python3 scripts/train_hierarchical.py > hierarchical.log 2>&1 &"
-echo "  nohup python3 scripts/run_hierarchical_no_dyna.py > hierarchical_no_dyna.log 2>&1 &"
-echo ""
-
-echo "To check running processes:"
-echo "ps aux | grep python"
-echo ""
-
-echo "To check GPU usage during training:"
-echo "watch -n 2 nvidia-smi"
+pid=$!
+printf '%s\n' "$pid" > "${LOG_FILE}.pid"
+echo "Started PID $pid"
+echo "Follow progress: tail -f $LOG_FILE"
