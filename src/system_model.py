@@ -52,8 +52,9 @@ class Config:
         self.A_max = 15.0
         self.noise_power = 1e-9
         self.gamma_reward = 0.95
-        self.eta = 100.0
+        self.eta = 50.0
         self.eta1 = 0.1
+        self.reward_scale = 10.0
         self.boundary = 1.0
         
         logger.info(f"Config initialized: N={self.N}, M={self.M}, F={self.F}")
@@ -342,11 +343,11 @@ class Environment:
                 data_sent = min(uav.buffer, o_i)
                 uav.update_buffer(0.0, data_sent)
                 energy_consumed += self.config.p_i_r * self.config.tau_d
-                rewards[i] += data_sent
-                logger.info(f"UAV {i} scheduled to RBS: data_sent={data_sent:.4f}, rate={o_i:.4f}, energy={self.config.p_i_r * self.config.tau_d:.4f}")
+                rewards[i] += data_sent * self.config.reward_scale
+                logger.info(f"UAV {i} scheduled to RBS: data_sent={data_sent:.4f}, rate={o_i:.4f}, energy={self.config.p_i_r * self.config.tau_d:.4f}, reward += {data_sent * self.config.reward_scale:.4f}")
             else:
-                rewards[i] += data_received * 0.5
-                logger.info(f"UAV {i} not scheduled: reward += {data_received * 0.5:.4f}")
+                rewards[i] += data_received * self.config.reward_scale * 0.5
+                logger.info(f"UAV {i} not scheduled: reward += {data_received * self.config.reward_scale * 0.5:.4f}")
             
             rewards[i] -= energy_consumed * self.config.eta1
             uav.energy -= energy_consumed
