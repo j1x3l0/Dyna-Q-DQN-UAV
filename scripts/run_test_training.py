@@ -77,6 +77,7 @@ def train_maddpg_test(case=1, episodes=500):
                 break
         
         rewards_history.append(total_reward)
+        agent.step_episode_schedulers()
         
         if episode % 50 == 0:
             avg_reward = np.mean(rewards_history[-50:]) if len(rewards_history) >= 50 else total_reward
@@ -141,6 +142,7 @@ def train_hierarchical_test(case=1, episodes=500):
                 break
         
         rewards_history.append(total_reward)
+        agent.step_episode_schedulers()
         
         if hasattr(agent, 'epsilon') and hasattr(agent, 'epsilon_decay') and hasattr(agent, 'epsilon_min'):
             agent.epsilon = max(agent.epsilon_min, agent.epsilon * agent.epsilon_decay)

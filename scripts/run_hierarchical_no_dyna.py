@@ -86,6 +86,7 @@ def train_hierarchical_no_dyna(case=1, episodes=500):
                 break
         
         rewards_history.append(total_reward)
+        agent.step_episode_schedulers()
         
         if hasattr(agent, 'epsilon') and hasattr(agent, 'epsilon_decay') and hasattr(agent, 'epsilon_min'):
             agent.epsilon = max(agent.epsilon_min, agent.epsilon * agent.epsilon_decay)

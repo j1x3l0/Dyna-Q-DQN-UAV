@@ -98,7 +98,7 @@ class Model(nn.Module):
         return reward, next_state
 
 class HierarchicalAgent:
-    def __init__(self, state_dim, action_dim, num_agents, config):
+    def __init__(self, state_dim, action_dim, num_agents, config, dyna_k=None):
         logger.info("=" * 60)
         logger.info("Initializing HierarchicalAgent...")
         logger.info("=" * 60)
@@ -108,6 +108,14 @@ class HierarchicalAgent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        torch.manual_seed(config.torch_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(config.torch_seed)
+        self.action_rng = config.rngs['action']
+        self.replay_rng = config.rngs['replay']
+        self.model_rng = config.rngs['model']
+        self.dyna_rng = config.rngs['dyna']
+        self.dyna_k = config.dyna_k if dyna_k is None else dyna_k
         
         logger.info(f"Hierarchical params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
         
@@ -145,17 +153,24 @@ class HierarchicalAgent:
         logger.info("Creating lower-layer optimizers...")
         self.lower_optimizers = [optim.Adam(self.lower_dqns[i].parameters(), lr=1e-4) for i in range(num_agents)]
         
-        logger.info("Creating Dyna-Q model networks...")
-        self.models = [Model(state_dim, 2 * config.M).to(self.device) for _ in range(num_agents)]
-        
-        logger.info("Creating model optimizers...")
-        self.model_optimizers = [optim.Adam(self.models[i].parameters(), lr=1e-4) for i in range(num_agents)]
-        
+        if self.dyna_k > 0:
+            logger.info("Creating Dyna-Q model networks...")
+            self.models = [Model(state_dim, 2 * config.M).to(self.device) for _ in range(num_agents)]
+            
+            logger.info("Creating model optimizers...")
+            self.model_optimizers = [optim.Adam(self.models[i].parameters(), lr=1e-4) for i in range(num_agents)]
+        else:
+            self.models = []
+            self.model_optimizers = []
+
         logger.info("Creating learning rate schedulers...")
         self.upper_actor_schedulers = [optim.lr_scheduler.StepLR(self.upper_actor_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
         self.upper_critic_schedulers = [optim.lr_scheduler.StepLR(self.upper_critic_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
         self.lower_schedulers = [optim.lr_scheduler.StepLR(self.lower_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
-        self.model_schedulers = [optim.lr_scheduler.StepLR(self.model_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
+        if self.dyna_k > 0:
+            self.model_schedulers = [optim.lr_scheduler.StepLR(self.model_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
+        else:
+            self.model_schedulers = []
         
         logger.info("Initializing upper-layer replay memory...")
         self.upper_memory = deque(maxlen=10000)
@@ -169,13 +184,13 @@ class HierarchicalAgent:
         self.epsilon = 0.1
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
-        self.dyna_k = 5
         self.clip_norm = 1.0
         
         logger.info(f"Upper memory capacity: {self.upper_memory.maxlen}")
         logger.info(f"Lower memory capacity: {self.lower_memory[0].maxlen} per agent")
         logger.info(f"gamma={self.gamma}, tau={self.tau}, batch_size={self.batch_size}, epsilon={self.epsilon}")
         logger.info(f"epsilon_min={self.epsilon_min}, epsilon_decay={self.epsilon_decay}, clip_norm={self.clip_norm}")
+        logger.info(f"dyna_k={self.dyna_k}")
         logger.info("=" * 60)
         logger.info("HierarchicalAgent initialization complete!")
         logger.info("=" * 60)
@@ -189,7 +204,7 @@ class HierarchicalAgent:
             action = self.upper_actors[i](state).detach().cpu().numpy()[0]
             
             if noise:
-                noise_val = np.random.normal(0, 0.1, size=action.shape)
+                noise_val = self.action_rng.normal(0, 0.1, size=action.shape)
                 action += noise_val
                 logger.debug(f"Upper Agent {i} action with noise: noise_norm={np.linalg.norm(noise_val):.4f}")
             
@@ -210,8 +225,8 @@ class HierarchicalAgent:
         for i in range(self.num_agents):
             state = torch.FloatTensor(states[i]).unsqueeze(0).to(self.device)
             
-            if np.random.random() < self.epsilon:
-                action = np.random.rand(2 * self.config.M)
+            if self.action_rng.random() < self.epsilon:
+                action = self.action_rng.random(2 * self.config.M)
                 logger.debug(f"Lower Agent {i} exploration action: random choice")
             else:
                 q_values = self.lower_dqns[i](state).detach().cpu().numpy()[0]
@@ -245,7 +260,7 @@ class HierarchicalAgent:
         
         logger.debug(f"update_upper() called: memory size={len(self.upper_memory)}, batch_size={self.batch_size}")
         
-        batch = np.random.choice(len(self.upper_memory), self.batch_size, replace=False)
+        batch = self.replay_rng.choice(len(self.upper_memory), self.batch_size, replace=False)
         states_batch = []
         actions_batch = []
         rewards_batch = []
@@ -309,9 +324,6 @@ class HierarchicalAgent:
             torch.nn.utils.clip_grad_norm_(self.upper_actors[i].parameters(), self.clip_norm)
             self.upper_actor_optimizers[i].step()
             
-            self.upper_actor_schedulers[i].step()
-            self.upper_critic_schedulers[i].step()
-            
             self.soft_update(self.upper_actors[i], self.target_upper_actors[i])
             self.soft_update(self.upper_critics[i], self.target_upper_critics[i])
         
@@ -324,7 +336,7 @@ class HierarchicalAgent:
         
         logger.debug(f"update_lower({agent_idx}) called: memory size={len(self.lower_memory[agent_idx])}, batch_size={self.batch_size}")
         
-        batch = np.random.choice(len(self.lower_memory[agent_idx]), self.batch_size, replace=False)
+        batch = self.replay_rng.choice(len(self.lower_memory[agent_idx]), self.batch_size, replace=False)
         states_batch = []
         actions_batch = []
         rewards_batch = []
@@ -363,13 +375,13 @@ class HierarchicalAgent:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.lower_dqns[agent_idx].parameters(), self.clip_norm)
         self.lower_optimizers[agent_idx].step()
-        self.lower_schedulers[agent_idx].step()
-        
         self.soft_update(self.lower_dqns[agent_idx], self.target_lower_dqns[agent_idx])
         
         logger.debug(f"update_lower({agent_idx}) completed successfully!")
     
     def model_predict(self, agent_idx, state, action):
+        if self.dyna_k <= 0 or not self.models:
+            raise RuntimeError("Dyna-Q model is disabled when dyna_k <= 0")
         logger.debug(f"model_predict({agent_idx}) called: state shape={state.shape}, action shape={action.shape}")
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         action_tensor = torch.FloatTensor(action).unsqueeze(0).to(self.device)
@@ -382,13 +394,15 @@ class HierarchicalAgent:
         return reward_pred, next_state_pred
     
     def update_model(self, agent_idx):
+        if self.dyna_k <= 0 or not self.models:
+            return
         if len(self.lower_memory[agent_idx]) < self.batch_size:
             logger.debug(f"update_model({agent_idx}) skipped: memory size {len(self.lower_memory[agent_idx])} < batch size {self.batch_size}")
             return
         
         logger.debug(f"update_model({agent_idx}) called: memory size={len(self.lower_memory[agent_idx])}, batch_size={self.batch_size}")
         
-        batch = np.random.choice(len(self.lower_memory[agent_idx]), self.batch_size, replace=False)
+        batch = self.model_rng.choice(len(self.lower_memory[agent_idx]), self.batch_size, replace=False)
         states_batch = []
         actions_batch = []
         rewards_batch = []
@@ -419,19 +433,22 @@ class HierarchicalAgent:
         total_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.models[agent_idx].parameters(), self.clip_norm)
         self.model_optimizers[agent_idx].step()
-        self.model_schedulers[agent_idx].step()
     
     def dyna_plan(self, agent_idx, k=None):
+        if self.dyna_k <= 0 or not self.models:
+            return
         if k is None:
             k = self.dyna_k
         
+        if k <= 0:
+            return
         if len(self.lower_memory[agent_idx]) < k:
             logger.debug(f"dyna_plan({agent_idx}) skipped: memory size {len(self.lower_memory[agent_idx])} < k={k}")
             return
         
         logger.debug(f"dyna_plan({agent_idx}) called: k={k}, memory size={len(self.lower_memory[agent_idx])}")
         
-        batch = np.random.choice(len(self.lower_memory[agent_idx]), k, replace=False)
+        batch = self.dyna_rng.choice(len(self.lower_memory[agent_idx]), k, replace=False)
         
         self.lower_optimizers[agent_idx].zero_grad()
         
@@ -465,6 +482,14 @@ class HierarchicalAgent:
         self.lower_optimizers[agent_idx].step()
         
         logger.debug(f"dyna_plan({agent_idx}) completed: avg_loss={total_loss/k:.6f}, k={k}")
+
+    def step_episode_schedulers(self):
+        for i in range(self.num_agents):
+            self.upper_actor_schedulers[i].step()
+            self.upper_critic_schedulers[i].step()
+            self.lower_schedulers[i].step()
+            if self.dyna_k > 0 and self.model_schedulers:
+                self.model_schedulers[i].step()
     
     def soft_update(self, source, target):
         for source_param, target_param in zip(source.parameters(), target.parameters()):
@@ -482,6 +507,11 @@ class HierarchicalNoDynaAgent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        torch.manual_seed(config.torch_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(config.torch_seed)
+        self.action_rng = config.rngs['action']
+        self.replay_rng = config.rngs['replay']
         
         logger.info(f"HierarchicalNoDyna params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
         
@@ -555,7 +585,7 @@ class HierarchicalNoDynaAgent:
             action = self.upper_actors[i](state).detach().cpu().numpy()[0]
             
             if noise:
-                noise_val = np.random.normal(0, 0.1, size=action.shape)
+                noise_val = self.action_rng.normal(0, 0.1, size=action.shape)
                 action += noise_val
             
             action[:4] = np.clip(action[:4], -1, 1)
@@ -572,8 +602,8 @@ class HierarchicalNoDynaAgent:
         for i in range(self.num_agents):
             state = torch.FloatTensor(states[i]).unsqueeze(0).to(self.device)
             
-            if np.random.random() < self.epsilon:
-                action = np.random.rand(2 * self.config.M)
+            if self.action_rng.random() < self.epsilon:
+                action = self.action_rng.random(2 * self.config.M)
             else:
                 q_values = self.lower_dqns[i](state).detach().cpu().numpy()[0]
                 action = np.zeros(2 * self.config.M)
@@ -596,7 +626,7 @@ class HierarchicalNoDynaAgent:
         if len(self.upper_memory) < self.batch_size:
             return
         
-        batch = np.random.choice(len(self.upper_memory), self.batch_size, replace=False)
+        batch = self.replay_rng.choice(len(self.upper_memory), self.batch_size, replace=False)
         states_batch = []
         actions_batch = []
         rewards_batch = []
@@ -654,9 +684,6 @@ class HierarchicalNoDynaAgent:
             torch.nn.utils.clip_grad_norm_(self.upper_actors[i].parameters(), self.clip_norm)
             self.upper_actor_optimizers[i].step()
             
-            self.upper_actor_schedulers[i].step()
-            self.upper_critic_schedulers[i].step()
-            
             self.soft_update(self.upper_actors[i], self.target_upper_actors[i])
             self.soft_update(self.upper_critics[i], self.target_upper_critics[i])
     
@@ -664,7 +691,7 @@ class HierarchicalNoDynaAgent:
         if len(self.lower_memory[agent_idx]) < self.batch_size:
             return
         
-        batch = np.random.choice(len(self.lower_memory[agent_idx]), self.batch_size, replace=False)
+        batch = self.replay_rng.choice(len(self.lower_memory[agent_idx]), self.batch_size, replace=False)
         states_batch = []
         actions_batch = []
         rewards_batch = []
@@ -700,9 +727,13 @@ class HierarchicalNoDynaAgent:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.lower_dqns[agent_idx].parameters(), self.clip_norm)
         self.lower_optimizers[agent_idx].step()
-        self.lower_schedulers[agent_idx].step()
-        
         self.soft_update(self.lower_dqns[agent_idx], self.target_lower_dqns[agent_idx])
+
+    def step_episode_schedulers(self):
+        for i in range(self.num_agents):
+            self.upper_actor_schedulers[i].step()
+            self.upper_critic_schedulers[i].step()
+            self.lower_schedulers[i].step()
     
     def soft_update(self, source, target):
         for source_param, target_param in zip(source.parameters(), target.parameters()):

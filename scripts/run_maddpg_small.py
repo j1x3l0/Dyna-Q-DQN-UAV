@@ -71,6 +71,7 @@ def train_maddpg(case=1, episodes=100):
             t += 1
         
         rewards_history.append(total_reward)
+        agent.step_episode_schedulers()
         
         if episode % 10 == 0:
             training_logger.info(f"Episode {episode}, Total Reward: {total_reward:.2f}")

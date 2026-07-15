@@ -76,6 +76,11 @@ class MADDPGAgent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        torch.manual_seed(config.torch_seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(config.torch_seed)
+        self.action_rng = config.rngs['action']
+        self.replay_rng = config.rngs['replay']
         
         logger.info(f"MADDPG params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
         
@@ -125,7 +130,7 @@ class MADDPGAgent:
             action = self.actors[i](state).detach().cpu().numpy()[0]
             
             if noise:
-                noise_val = np.random.normal(0, 0.1, size=action.shape)
+                noise_val = self.action_rng.normal(0, 0.1, size=action.shape)
                 action += noise_val
                 logger.debug(f"Agent {i} action with noise: noise_norm={np.linalg.norm(noise_val):.4f}")
             
@@ -151,7 +156,7 @@ class MADDPGAgent:
         
         logger.debug(f"update() called: memory size={len(self.memory)}, batch_size={self.batch_size}")
         
-        batch = np.random.choice(len(self.memory), self.batch_size, replace=False)
+        batch = self.replay_rng.choice(len(self.memory), self.batch_size, replace=False)
         states_batch = []
         actions_batch = []
         rewards_batch = []
@@ -215,13 +220,15 @@ class MADDPGAgent:
             torch.nn.utils.clip_grad_norm_(self.actors[i].parameters(), self.clip_norm)
             self.actor_optimizers[i].step()
             
-            self.actor_schedulers[i].step()
-            self.critic_schedulers[i].step()
-            
             self.soft_update(self.actors[i], self.target_actors[i])
             self.soft_update(self.critics[i], self.target_critics[i])
         
         logger.debug("update() completed successfully!")
+
+    def step_episode_schedulers(self):
+        for i in range(self.num_agents):
+            self.actor_schedulers[i].step()
+            self.critic_schedulers[i].step()
     
     def soft_update(self, source, target):
         for source_param, target_param in zip(source.parameters(), target.parameters()):

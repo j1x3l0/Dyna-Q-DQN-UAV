@@ -2,6 +2,7 @@ import logging
 import numpy as np
 import torch
 import os
+from numpy.random import SeedSequence
 from logging.handlers import RotatingFileHandler
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,8 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 class Config:
-    def __init__(self):
+    def __init__(self, seed=42):
+        self.seed = seed
         self.N = 3
         self.M = 6
         self.F = 4
@@ -50,20 +52,34 @@ class Config:
         self.E_max = 10.0
         self.A_min = 5.0
         self.A_max = 15.0
-        self.noise_power = 1e-9
+        self.noise_power = 1e-12
         self.gamma_reward = 0.95
         self.eta = 50.0
         self.eta1 = 0.1
         self.reward_scale = 10.0
         self.boundary = 1.0
+        self.dyna_k = 1
+
+        seed_sequence = SeedSequence(seed)
+        env_seq, action_seq, replay_seq, model_seq, dyna_seq, torch_seq = seed_sequence.spawn(6)
+        self.rngs = {
+            'env': np.random.default_rng(env_seq),
+            'action': np.random.default_rng(action_seq),
+            'replay': np.random.default_rng(replay_seq),
+            'model': np.random.default_rng(model_seq),
+            'dyna': np.random.default_rng(dyna_seq),
+            'torch': np.random.default_rng(torch_seq),
+        }
+        self.torch_seed = int(self.rngs['torch'].integers(0, 2**31 - 1))
         
         logger.info(f"Config initialized: N={self.N}, M={self.M}, F={self.F}")
         logger.info(f"UAV params: v_max={self.v_max}, d_min={self.d_min}")
         logger.info(f"Time slots: tau_f={self.tau_f}, tau_s={self.tau_s}, tau_d={self.tau_d}")
 
 class ChannelModel:
-    def __init__(self, config):
+    def __init__(self, config, rng):
         self.config = config
+        self.rng = rng
         self.omega_0 = 1e-3
         logger.info(f"ChannelModel initialized: omega_0={self.omega_0}, alpha={config.alpha}, K={config.K}")
     
@@ -73,9 +89,9 @@ class ChannelModel:
     
     def rician_fading(self, distance):
         K = self.config.K
-        los_component = np.random.randn(1, self.config.F) + 1j * np.random.randn(1, self.config.F)
+        los_component = self.rng.standard_normal((1, self.config.F)) + 1j * self.rng.standard_normal((1, self.config.F))
         los_component = los_component / np.linalg.norm(los_component)
-        nlos_component = np.random.randn(1, self.config.F) + 1j * np.random.randn(1, self.config.F)
+        nlos_component = self.rng.standard_normal((1, self.config.F)) + 1j * self.rng.standard_normal((1, self.config.F))
         nlos_component = nlos_component / np.linalg.norm(nlos_component)
         psi = self.large_scale_fading(distance)
         h = np.sqrt(psi) * (np.sqrt(K / (1 + K)) * los_component + np.sqrt(1 / (1 + K)) * nlos_component)
@@ -88,12 +104,13 @@ class ChannelModel:
         return h, distance
 
 class GroundUser:
-    def __init__(self, config, idx):
+    def __init__(self, config, idx, rng):
         self.config = config
         self.idx = idx
-        self.pos = np.random.uniform(-config.boundary, config.boundary, 2)
-        self.energy = np.random.uniform(0, config.E_max)
-        self.buffer = np.random.uniform(config.A_min, config.A_max)
+        self.rng = rng
+        self.pos = self.rng.uniform(-config.boundary, config.boundary, 2)
+        self.energy = self.rng.uniform(0, config.E_max)
+        self.buffer = self.rng.uniform(config.A_min, config.A_max)
         self.data_rate_a = 0.0
         self.data_rate_b = 0.0
         self.access = False
@@ -111,12 +128,13 @@ class GroundUser:
         logger.debug(f"GU {self.idx} energy update: old={old_energy:.4f}, harvested={harvested_energy:.4f}, consumed={consumed_energy:.4f}, now={self.energy:.4f}")
 
 class UAV:
-    def __init__(self, config, idx):
+    def __init__(self, config, idx, rng):
         self.config = config
         self.idx = idx
-        self.pos = np.array([np.random.uniform(-config.boundary, config.boundary), 
-                            np.random.uniform(-config.boundary, config.boundary),
-                            np.random.uniform(50, 100)])
+        self.rng = rng
+        self.pos = np.array([self.rng.uniform(-config.boundary, config.boundary), 
+                            self.rng.uniform(-config.boundary, config.boundary),
+                            self.rng.uniform(50, 100)])
         self.buffer = 0.0
         self.energy = 100.0
         self.velocity = np.zeros(3)
@@ -148,11 +166,13 @@ class Environment:
         logger.info("=" * 60)
         
         self.config = config
-        self.channel_model = ChannelModel(config)
+        self.rng = config.rngs['env']
+        self.channel_model = ChannelModel(config, self.rng)
         self.rbs = RBStation(config)
-        self.uavs = [UAV(config, i) for i in range(config.N)]
-        self.gus = [GroundUser(config, i) for i in range(config.M)]
+        self.uavs = [UAV(config, i, self.rng) for i in range(config.N)]
+        self.gus = [GroundUser(config, i, self.rng) for i in range(config.M)]
         self.time_slot = 0
+        self.last_step_info = None
         
         logger.info(f"Environment initialized: {config.N} UAVs, {config.M} GUs")
         logger.info("=" * 60)
@@ -163,9 +183,9 @@ class Environment:
         if case == 1:
             logger.info("Case 1: UAVs start at random positions")
             for i, uav in enumerate(self.uavs):
-                uav.pos = np.array([np.random.uniform(-self.config.boundary, self.config.boundary),
-                                   np.random.uniform(-self.config.boundary, self.config.boundary),
-                                   np.random.uniform(50, 100)])
+                uav.pos = np.array([self.rng.uniform(-self.config.boundary, self.config.boundary),
+                                   self.rng.uniform(-self.config.boundary, self.config.boundary),
+                                   self.rng.uniform(50, 100)])
                 logger.debug(f"UAV {i} pos: {uav.pos}")
         else:
             logger.info("Case 2: All UAVs start at same position (0, 0, 100)")
@@ -179,10 +199,11 @@ class Environment:
             uav.scheduled = False
         
         for gu in self.gus:
-            gu.energy = np.random.uniform(0, self.config.E_max)
-            gu.buffer = np.random.uniform(self.config.A_min, self.config.A_max)
-        
+            gu.energy = self.rng.uniform(0, self.config.E_max)
+            gu.buffer = self.rng.uniform(self.config.A_min, self.config.A_max)
+
         self.time_slot = 0
+        self.last_step_info = None
         logger.info(f"Environment reset completed, time_slot={self.time_slot}")
         
         return self.get_state()
@@ -269,6 +290,17 @@ class Environment:
     def step(self, actions):
         logger.info(f"\n=== Step: time_slot={self.time_slot} ===")
         rewards = np.zeros(self.config.N)
+        step_info = {
+            'per_agent': [],
+            'totals': {
+                'collision_events': 0,
+                'collision_penalty': 0.0,
+                'data_received': 0.0,
+                'data_sent_to_rbs': 0.0,
+                'energy_consumed': 0.0,
+                'harvested_energy': 0.0,
+            }
+        }
         
         for i, uav in enumerate(self.uavs):
             action = actions[i]
@@ -280,14 +312,16 @@ class Environment:
             logger.debug(f"UAV {i} full action: dir={direction}, speed={speed}, access={action[4:10]}, mode={action[10:16]}, scheduled={action[-1]}")
             
             uav.move(direction, speed)
-            
+
             collision_count = 0
+            collision_penalty = 0.0
             for j, other_uav in enumerate(self.uavs):
                 if i != j:
                     dist = np.linalg.norm(uav.pos - other_uav.pos)
                     if dist < self.config.d_min:
                         rewards[i] -= self.config.eta
                         collision_count += 1
+                        collision_penalty += self.config.eta
                         logger.warning(f"UAV {i} collision with UAV {j}: distance={dist:.2f} < d_min={self.config.d_min}, penalty={self.config.eta}")
             
             if collision_count > 0:
@@ -303,6 +337,8 @@ class Environment:
             tau_z = self.config.tau_s / max(len(coverage), 1)
             data_received = 0.0
             energy_consumed = 0.0
+            harvested_energy_total = 0.0
+            data_sent_to_rbs = 0.0
             
             for gu_idx in coverage:
                 gu = self.gus[gu_idx]
@@ -319,6 +355,7 @@ class Environment:
                         harvested = self.calculate_harvested_energy(uav, gu_idx, access_control, mode_selection)
                         gu.update_energy(harvested, consumed)
                         energy_consumed += consumed
+                        harvested_energy_total += harvested
                         logger.info(f"GU {gu_idx} RF mode: sent={data_sent:.4f}, consumed={consumed:.4f}, harvested={harvested:.4f}")
                     else:
                         data_sent = min(gu.buffer, gu.data_rate_b)
@@ -326,9 +363,10 @@ class Environment:
                         harvested = self.calculate_harvested_energy(uav, gu_idx, access_control, mode_selection)
                         gu.update_energy(harvested, consumed)
                         energy_consumed += self.config.p_A * tau_z
+                        harvested_energy_total += harvested
                         logger.info(f"GU {gu_idx} backscatter mode: sent={data_sent:.4f}, consumed={self.config.p_A * tau_z:.4f}, harvested={harvested:.4f}")
                     
-                    new_data = np.random.uniform(self.config.A_min, self.config.A_max)
+                    new_data = self.rng.uniform(self.config.A_min, self.config.A_max)
                     gu.update_buffer(data_sent, new_data)
                     data_received += data_sent
                 else:
@@ -344,6 +382,7 @@ class Environment:
                 uav.update_buffer(0.0, data_sent)
                 energy_consumed += self.config.p_i_r * self.config.tau_d
                 rewards[i] += data_sent * self.config.reward_scale
+                data_sent_to_rbs = data_sent
                 logger.info(f"UAV {i} scheduled to RBS: data_sent={data_sent:.4f}, rate={o_i:.4f}, energy={self.config.p_i_r * self.config.tau_d:.4f}, reward += {data_sent * self.config.reward_scale:.4f}")
             else:
                 rewards[i] += data_received * self.config.reward_scale * 0.5
@@ -352,9 +391,25 @@ class Environment:
             rewards[i] -= energy_consumed * self.config.eta1
             uav.energy -= energy_consumed
             logger.info(f"UAV {i} final reward: {rewards[i]:.4f}, remaining energy: {uav.energy:.2f}")
+
+            step_info['per_agent'].append({
+                'collision_events': collision_count,
+                'collision_penalty': collision_penalty,
+                'data_received': data_received,
+                'data_sent_to_rbs': data_sent_to_rbs,
+                'energy_consumed': energy_consumed,
+                'harvested_energy': harvested_energy_total,
+            })
+            step_info['totals']['collision_events'] += collision_count
+            step_info['totals']['collision_penalty'] += collision_penalty
+            step_info['totals']['data_received'] += data_received
+            step_info['totals']['data_sent_to_rbs'] += data_sent_to_rbs
+            step_info['totals']['energy_consumed'] += energy_consumed
+            step_info['totals']['harvested_energy'] += harvested_energy_total
         
         self.time_slot += 1
         done = self.time_slot >= 100
         logger.info(f"Step completed: time_slot={self.time_slot}, done={done}, rewards={rewards}")
+        self.last_step_info = step_info
         
         return self.get_state(), rewards, done
