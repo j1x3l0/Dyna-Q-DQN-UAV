@@ -39,7 +39,7 @@ stream_handler.setFormatter(formatter)
 training_logger.addHandler(file_handler)
 training_logger.addHandler(stream_handler)
 
-def train_maddpg(case=1, episodes=50000):
+def train_maddpg(case=1, episodes=500):
     training_logger.info(f"Starting MADDPG training - Case: {case}, Episodes: {episodes}")
     
     config = Config()
@@ -74,7 +74,7 @@ def train_maddpg(case=1, episodes=50000):
         rewards_history.append(total_reward)
         agent.step_episode_schedulers()
         
-        if episode % 1000 == 0:
+        if episode % 50 == 0:
             training_logger.info(f"Episode {episode}, Total Reward: {total_reward:.2f}")
     
     results_dir = os.path.join(os.path.dirname(__file__), '..', 'results')
@@ -93,5 +93,4 @@ def train_maddpg(case=1, episodes=50000):
     training_logger.info(f"Training Case {case} completed! Final reward: {rewards_history[-1]:.2f}")
 
 if __name__ == '__main__':
-    train_maddpg(case=1, episodes=50000)
-    train_maddpg(case=2, episodes=50000)
+    train_maddpg(case=1, episodes=500)

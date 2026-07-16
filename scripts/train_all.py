@@ -79,15 +79,20 @@ def run_single_experiment(k, seed, episodes=DEFAULT_EPISODES, case=1):
                 np.concatenate([upper_actions[i], lower_actions[i]])
                 for i in range(config.N)
             ])
-
+            
             next_states, rewards, done = env.step(full_actions)
             step_info = env.last_step_info or {'totals': {k: 0.0 for k in totals}}
+            per_agent_info = step_info.get('per_agent', [])
+            lower_rewards = np.array([
+                per_agent_info[i].get('lower_reward', float(rewards[i])) if i < len(per_agent_info) else float(rewards[i])
+                for i in range(config.N)
+            ], dtype=float)
 
             agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
             agent.update_upper()
 
             for i in range(config.N):
-                agent.add_lower_memory(i, states[i], lower_actions[i], rewards[i], next_states[i], done)
+                agent.add_lower_memory(i, states[i], lower_actions[i], lower_rewards[i], next_states[i], done)
                 agent.update_lower(i)
                 if k > 0:
                     agent.update_model(i)

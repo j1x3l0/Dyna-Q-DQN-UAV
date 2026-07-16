@@ -125,12 +125,18 @@ def train_hierarchical_test(case=1, episodes=500):
             
             full_actions = np.array(full_actions)
             next_states, rewards, done = env.step(full_actions)
+            step_info = env.last_step_info or {}
+            per_agent_info = step_info.get('per_agent', [])
+            lower_rewards = np.array([
+                per_agent_info[i].get('lower_reward', float(rewards[i])) if i < len(per_agent_info) else float(rewards[i])
+                for i in range(config.N)
+            ], dtype=float)
             
             agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
             agent.update_upper()
             
             for i in range(config.N):
-                agent.add_lower_memory(i, states[i], lower_actions[i], rewards[i], next_states[i], done)
+                agent.add_lower_memory(i, states[i], lower_actions[i], lower_rewards[i], next_states[i], done)
                 agent.update_lower(i)
                 agent.update_model(i)
                 agent.dyna_plan(i)

@@ -462,6 +462,7 @@ class HierarchicalAgent:
             action_tensor = torch.FloatTensor(a).unsqueeze(0).to(self.device)
             next_state_pred_tensor = torch.FloatTensor(s_pred).unsqueeze(0).to(self.device)
             reward_pred_tensor = torch.FloatTensor([[r_pred]]).to(self.device)
+            done_tensor = torch.FloatTensor([[d]]).to(self.device)
             
             self.lower_dqns[agent_idx].train()
             
@@ -472,12 +473,15 @@ class HierarchicalAgent:
             next_q_values = self.target_lower_dqns[agent_idx](next_state_pred_tensor)
             next_max_q = next_q_values.max(dim=1)[0].unsqueeze(1)
             
-            y_i = reward_pred_tensor + self.gamma * next_max_q * (1 - torch.FloatTensor([[d]]).to(self.device))
+            y_i = reward_pred_tensor + self.gamma * next_max_q * (1 - done_tensor)
             
             loss = nn.MSELoss()(q_i, y_i.detach())
             total_loss += loss.item()
             
             loss.backward()
+            
+            del state_tensor, action_tensor, next_state_pred_tensor, reward_pred_tensor, done_tensor
+            del q_values, action_index, q_i, next_q_values, next_max_q, y_i, loss
         
         self.lower_optimizers[agent_idx].step()
         

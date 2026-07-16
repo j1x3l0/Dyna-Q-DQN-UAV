@@ -54,10 +54,16 @@ class Config:
         self.A_max = 15.0
         self.noise_power = 1e-12
         self.gamma_reward = 0.95
+        self.gamma_forward = 0.95
         self.eta = 50.0
         self.eta1 = 0.1
-        self.reward_scale = 10.0
-        self.boundary = 1.0
+        self.reward_scale = 1.0
+        self.P_0 = 5.0
+        self.denom_epsilon = 1e-6
+        self.boundary = 50.0
+        self.d_soft = 10.0
+        self.eta_soft = 5.0
+        self.init_min_separation = 15.0
         self.dyna_k = 1
 
         seed_sequence = SeedSequence(seed)
@@ -74,6 +80,8 @@ class Config:
         
         logger.info(f"Config initialized: N={self.N}, M={self.M}, F={self.F}")
         logger.info(f"UAV params: v_max={self.v_max}, d_min={self.d_min}")
+        logger.info(f"Reward params: gamma_forward={self.gamma_forward}, eta={self.eta}, eta1={self.eta1}, reward_scale={self.reward_scale}, P_0={self.P_0}, denom_epsilon={self.denom_epsilon}")
+        logger.info(f"Collision params: d_min={self.d_min}, d_soft={self.d_soft}, eta={self.eta}, eta_soft={self.eta_soft}, init_min_sep={self.init_min_separation}, boundary={self.boundary}")
         logger.info(f"Time slots: tau_f={self.tau_f}, tau_s={self.tau_s}, tau_d={self.tau_d}")
 
 class ChannelModel:
@@ -181,11 +189,30 @@ class Environment:
         logger.info(f"\n--- Resetting environment (case={case}) ---")
         
         if case == 1:
-            logger.info("Case 1: UAVs start at random positions")
-            for i, uav in enumerate(self.uavs):
-                uav.pos = np.array([self.rng.uniform(-self.config.boundary, self.config.boundary),
+            logger.info("Case 1: UAVs start at random positions (with minimum separation)")
+            max_retries = 100
+            for attempt in range(max_retries):
+                positions = []
+                for i, uav in enumerate(self.uavs):
+                    pos = np.array([self.rng.uniform(-self.config.boundary, self.config.boundary),
                                    self.rng.uniform(-self.config.boundary, self.config.boundary),
                                    self.rng.uniform(50, 100)])
+                    positions.append(pos)
+                distances = []
+                for i in range(self.config.N):
+                    for j in range(i + 1, self.config.N):
+                        distances.append(np.linalg.norm(positions[i] - positions[j]))
+                min_dist = min(distances) if distances else float('inf')
+                if min_dist >= self.config.init_min_separation:
+                    for i, uav in enumerate(self.uavs):
+                        uav.pos = positions[i]
+                    logger.info(f"UAV initial positions accepted (attempt {attempt+1}, min_dist={min_dist:.1f}m)")
+                    break
+            else:
+                logger.warning(f"Could not find separation after {max_retries} attempts, using last positions")
+                for i, uav in enumerate(self.uavs):
+                    uav.pos = positions[i]
+            for i, uav in enumerate(self.uavs):
                 logger.debug(f"UAV {i} pos: {uav.pos}")
         else:
             logger.info("Case 2: All UAVs start at same position (0, 0, 100)")
@@ -298,7 +325,10 @@ class Environment:
                 'data_received': 0.0,
                 'data_sent_to_rbs': 0.0,
                 'energy_consumed': 0.0,
+                'flight_energy': 0.0,
                 'harvested_energy': 0.0,
+                'lower_reward': 0.0,
+                'upper_reward': 0.0,
             }
         }
         
@@ -319,10 +349,14 @@ class Environment:
                 if i != j:
                     dist = np.linalg.norm(uav.pos - other_uav.pos)
                     if dist < self.config.d_min:
-                        rewards[i] -= self.config.eta
                         collision_count += 1
-                        collision_penalty += self.config.eta
-                        logger.warning(f"UAV {i} collision with UAV {j}: distance={dist:.2f} < d_min={self.config.d_min}, penalty={self.config.eta}")
+                        hard_penalty = self.config.eta * (1 - dist / self.config.d_min)
+                        collision_penalty += hard_penalty
+                        logger.warning(f"UAV {i} collision with UAV {j}: distance={dist:.2f} < d_min={self.config.d_min}, penalty={hard_penalty:.2f}")
+                    elif dist < self.config.d_soft:
+                        soft_penalty = self.config.eta_soft * (1 - dist / self.config.d_soft)
+                        collision_penalty += soft_penalty
+                        logger.debug(f"UAV {i} approaching UAV {j}: distance={dist:.2f} < d_soft={self.config.d_soft}, soft_penalty={soft_penalty:.2f}")
             
             if collision_count > 0:
                 logger.info(f"UAV {i} collision penalty: -{self.config.eta * collision_count}")
@@ -336,7 +370,8 @@ class Environment:
             
             tau_z = self.config.tau_s / max(len(coverage), 1)
             data_received = 0.0
-            energy_consumed = 0.0
+            sensing_energy_consumed = 0.0
+            forward_energy_consumed = 0.0
             harvested_energy_total = 0.0
             data_sent_to_rbs = 0.0
             
@@ -354,17 +389,17 @@ class Environment:
                         consumed = self.config.p_m * tau_z
                         harvested = self.calculate_harvested_energy(uav, gu_idx, access_control, mode_selection)
                         gu.update_energy(harvested, consumed)
-                        energy_consumed += consumed
+                        sensing_energy_consumed += consumed
                         harvested_energy_total += harvested
                         logger.info(f"GU {gu_idx} RF mode: sent={data_sent:.4f}, consumed={consumed:.4f}, harvested={harvested:.4f}")
                     else:
                         data_sent = min(gu.buffer, gu.data_rate_b)
-                        consumed = 0.0
+                        consumed = self.config.p_A * tau_z
                         harvested = self.calculate_harvested_energy(uav, gu_idx, access_control, mode_selection)
                         gu.update_energy(harvested, consumed)
-                        energy_consumed += self.config.p_A * tau_z
+                        sensing_energy_consumed += consumed
                         harvested_energy_total += harvested
-                        logger.info(f"GU {gu_idx} backscatter mode: sent={data_sent:.4f}, consumed={self.config.p_A * tau_z:.4f}, harvested={harvested:.4f}")
+                        logger.info(f"GU {gu_idx} backscatter mode: sent={data_sent:.4f}, consumed={consumed:.4f}, harvested={harvested:.4f}")
                     
                     new_data = self.rng.uniform(self.config.A_min, self.config.A_max)
                     gu.update_buffer(data_sent, new_data)
@@ -373,39 +408,61 @@ class Environment:
                     logger.debug(f"GU {gu_idx} access denied (access_control={access_control[gu_idx]:.2f})")
             
             uav.update_buffer(data_received, 0.0)
-            logger.info(f"UAV {i} data received: {data_received:.4f}, energy consumed: {energy_consumed:.4f}")
-            
+            logger.info(f"UAV {i} data received: {data_received:.4f}, sensing energy consumed: {sensing_energy_consumed:.4f}")
+
+            flight_energy = self.config.P_0 * (1 + 3 * speed**2 / self.config.v_max**2) * self.config.tau_f
+
             if uav.scheduled:
                 g_i, _ = self.channel_model.get_channel(uav.pos, self.rbs.pos)
                 o_i = self.config.tau_d * np.log2(1 + self.config.p_i_r * np.linalg.norm(g_i) ** 2 / self.config.noise_power)
                 data_sent = min(uav.buffer, o_i)
                 uav.update_buffer(0.0, data_sent)
-                energy_consumed += self.config.p_i_r * self.config.tau_d
-                rewards[i] += data_sent * self.config.reward_scale
+                forward_energy_consumed += self.config.p_i_r * self.config.tau_d
                 data_sent_to_rbs = data_sent
-                logger.info(f"UAV {i} scheduled to RBS: data_sent={data_sent:.4f}, rate={o_i:.4f}, energy={self.config.p_i_r * self.config.tau_d:.4f}, reward += {data_sent * self.config.reward_scale:.4f}")
+                logger.info(f"UAV {i} scheduled to RBS: data_sent={data_sent:.4f}, rate={o_i:.4f}, energy={self.config.p_i_r * self.config.tau_d:.4f}")
             else:
-                rewards[i] += data_received * self.config.reward_scale * 0.5
-                logger.info(f"UAV {i} not scheduled: reward += {data_received * self.config.reward_scale * 0.5:.4f}")
-            
-            rewards[i] -= energy_consumed * self.config.eta1
-            uav.energy -= energy_consumed
-            logger.info(f"UAV {i} final reward: {rewards[i]:.4f}, remaining energy: {uav.energy:.2f}")
+                logger.info(f"UAV {i} not scheduled: no data forwarded to RBS")
+
+            total_energy = flight_energy + sensing_energy_consumed + forward_energy_consumed
+            total_energy = max(total_energy, self.config.denom_epsilon)
+
+            ee_numerator = data_received + self.config.gamma_forward * data_sent_to_rbs
+            ee_ratio = ee_numerator / total_energy
+
+            energy_consumed = sensing_energy_consumed + forward_energy_consumed
+            upper_reward = ee_ratio * self.config.reward_scale - collision_penalty
+            lower_reward = data_received - self.config.eta1 * harvested_energy_total
+            rewards[i] = upper_reward
+            uav.energy -= forward_energy_consumed
+            logger.info(
+                f"UAV {i} rewards: upper(EE ratio)={upper_reward:.4f}, lower(sensing)={lower_reward:.4f}, "
+                f"ee_ratio={ee_ratio:.4f} bits/J, flight_e={flight_energy:.4f}, "
+                f"sensing_e={sensing_energy_consumed:.4f}, forward_e={forward_energy_consumed:.4f}, "
+                f"harvested_e={harvested_energy_total:.6f}, total_e={total_energy:.4f}"
+            )
 
             step_info['per_agent'].append({
                 'collision_events': collision_count,
                 'collision_penalty': collision_penalty,
                 'data_received': data_received,
                 'data_sent_to_rbs': data_sent_to_rbs,
+                'sensing_energy_consumed': sensing_energy_consumed,
+                'forward_energy_consumed': forward_energy_consumed,
+                'flight_energy': flight_energy,
                 'energy_consumed': energy_consumed,
                 'harvested_energy': harvested_energy_total,
+                'lower_reward': lower_reward,
+                'upper_reward': upper_reward,
             })
             step_info['totals']['collision_events'] += collision_count
             step_info['totals']['collision_penalty'] += collision_penalty
             step_info['totals']['data_received'] += data_received
             step_info['totals']['data_sent_to_rbs'] += data_sent_to_rbs
             step_info['totals']['energy_consumed'] += energy_consumed
+            step_info['totals']['flight_energy'] += flight_energy
             step_info['totals']['harvested_energy'] += harvested_energy_total
+            step_info['totals']['lower_reward'] += lower_reward
+            step_info['totals']['upper_reward'] += upper_reward
         
         self.time_slot += 1
         done = self.time_slot >= 100

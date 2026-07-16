@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import torch
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
@@ -39,7 +40,7 @@ stream_handler.setFormatter(formatter)
 training_logger.addHandler(file_handler)
 training_logger.addHandler(stream_handler)
 
-def train_hierarchical(case=1, episodes=50000):
+def train_hierarchical(case=1, episodes=500):
     training_logger.info(f"Starting Hierarchical training - Case: {case}, Episodes: {episodes}")
     
     config = Config()
@@ -69,12 +70,18 @@ def train_hierarchical(case=1, episodes=50000):
             
             full_actions = np.array(full_actions)
             next_states, rewards, done = env.step(full_actions)
-            
+            step_info = env.last_step_info or {}
+            per_agent_info = step_info.get('per_agent', [])
+            lower_rewards = np.array([
+                per_agent_info[i].get('lower_reward', float(rewards[i])) if i < len(per_agent_info) else float(rewards[i])
+                for i in range(config.N)
+            ], dtype=float)
+
             agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
             agent.update_upper()
-            
+
             for i in range(config.N):
-                agent.add_lower_memory(i, states[i], lower_actions[i], rewards[i], next_states[i], done)
+                agent.add_lower_memory(i, states[i], lower_actions[i], lower_rewards[i], next_states[i], done)
                 agent.update_lower(i)
                 agent.update_model(i)
                 agent.dyna_plan(i)
@@ -88,7 +95,10 @@ def train_hierarchical(case=1, episodes=50000):
         rewards_history.append(total_reward)
         agent.step_episode_schedulers()
         
-        if episode % 1000 == 0:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        if episode % 50 == 0:
             training_logger.info(f"Episode {episode}, Total Reward: {total_reward:.2f}")
     
     results_dir = os.path.join(os.path.dirname(__file__), '..', 'results')
@@ -107,5 +117,4 @@ def train_hierarchical(case=1, episodes=50000):
     training_logger.info(f"Hierarchical Training Case {case} completed! Final reward: {rewards_history[-1]:.2f}")
 
 if __name__ == '__main__':
-    train_hierarchical(case=1, episodes=50000)
-    train_hierarchical(case=2, episodes=50000)
+    train_hierarchical(case=1, episodes=500)

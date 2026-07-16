@@ -71,12 +71,18 @@ def train_hierarchical_no_dyna(case=1, episodes=500):
             
             full_actions = np.array(full_actions)
             next_states, rewards, done = env.step(full_actions)
-            
+            step_info = env.last_step_info or {}
+            per_agent_info = step_info.get('per_agent', [])
+            lower_rewards = np.array([
+                per_agent_info[i].get('lower_reward', float(rewards[i])) if i < len(per_agent_info) else float(rewards[i])
+                for i in range(config.N)
+            ], dtype=float)
+
             agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
             agent.update_upper()
-            
+
             for i in range(config.N):
-                agent.add_lower_memory(i, states[i], lower_actions[i], rewards[i], next_states[i], done)
+                agent.add_lower_memory(i, states[i], lower_actions[i], lower_rewards[i], next_states[i], done)
                 agent.update_lower(i)
             
             total_reward += np.sum(rewards)
@@ -169,17 +175,17 @@ def main():
     logger.info(f"Hierarchical (MADDPG+DQN, no Dyna-Q) Training")
     logger.info(f"{'='*60}")
     
-    for episodes in [500, 5000]:
-        logger.info(f"\n{'='*60}")
-        logger.info(f"Running {episodes}-episode training...")
-        logger.info(f"{'='*60}")
-        
-        rewards = train_hierarchical_no_dyna(case=1, episodes=episodes)
-        generate_report(rewards, episodes)
-        
-        logger.info(f"\n{'='*60}")
-        logger.info(f"{episodes}-episode training completed!")
-        logger.info(f"{'='*60}")
+    episodes = 500
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Running {episodes}-episode training...")
+    logger.info(f"{'='*60}")
+    
+    rewards = train_hierarchical_no_dyna(case=1, episodes=episodes)
+    generate_report(rewards, episodes)
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"{episodes}-episode training completed!")
+    logger.info(f"{'='*60}")
     
     logger.info(f"\n{'='*60}")
     logger.info(f"All training completed successfully!")
