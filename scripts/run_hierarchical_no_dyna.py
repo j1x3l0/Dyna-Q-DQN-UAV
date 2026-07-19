@@ -41,12 +41,12 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 
-def train_hierarchical_no_dyna(case=1, episodes=500):
+def train_hierarchical_no_dyna(case=1, episodes=500, seed=42):
     logger.info(f"\n{'='*60}")
-    logger.info(f"Starting Hierarchical (MADDPG+DQN, no Dyna-Q) Training - Episodes: {episodes}")
+    logger.info(f"Starting Hierarchical (MADDPG+DQN, no Dyna-Q) Training - Episodes: {episodes}, Seed: {seed}")
     logger.info(f"{'='*60}")
-    
-    config = Config()
+
+    config = Config(seed=seed)
     env = Environment(config)
     
     state_dim = 30

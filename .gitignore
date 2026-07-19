@@ -88,3 +88,6 @@ runs/
 *.tmp
 *.temp
 *.bak
+checkpoints/
+logs/
+__pycache__/

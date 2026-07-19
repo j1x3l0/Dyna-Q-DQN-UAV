@@ -41,12 +41,12 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
-def train_maddpg_test(case=1, episodes=500):
+def train_maddpg_test(case=1, episodes=500, seed=42):
     logger.info(f"\n{'='*60}")
-    logger.info(f"Starting MADDPG Test Training - Case: {case}, Episodes: {episodes}")
+    logger.info(f"Starting MADDPG Test Training - Case: {case}, Episodes: {episodes}, Seed: {seed}")
     logger.info(f"{'='*60}")
-    
-    config = Config()
+
+    config = Config(seed=seed)
     env = Environment(config)
     
     state_dim = 30
@@ -92,12 +92,12 @@ def train_maddpg_test(case=1, episodes=500):
     
     return rewards_history, avg_rewards
 
-def train_hierarchical_test(case=1, episodes=500):
+def train_hierarchical_test(case=1, episodes=500, seed=42):
     logger.info(f"\n{'='*60}")
-    logger.info(f"Starting Hierarchical (Dyna-Q) Test Training - Case: {case}, Episodes: {episodes}")
+    logger.info(f"Starting Hierarchical (Dyna-Q) Test Training - Case: {case}, Episodes: {episodes}, Seed: {seed}")
     logger.info(f"{'='*60}")
-    
-    config = Config()
+
+    config = Config(seed=seed)
     env = Environment(config)
     
     state_dim = 30

@@ -12,6 +12,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from system_model import Config, Environment
 from maddpg_agent import MADDPGAgent
+from training_utils import get_state_action_dims
 
 log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
 os.makedirs(log_dir, exist_ok=True)
@@ -39,14 +40,13 @@ stream_handler.setFormatter(formatter)
 training_logger.addHandler(file_handler)
 training_logger.addHandler(stream_handler)
 
-def train_maddpg(case=1, episodes=500):
-    training_logger.info(f"Starting MADDPG training - Case: {case}, Episodes: {episodes}")
-    
-    config = Config()
+def train_maddpg(case=1, episodes=500, seed=42):
+    training_logger.info(f"Starting MADDPG training - Case: {case}, Episodes: {episodes}, Seed: {seed}")
+
+    config = Config(seed=seed)
     env = Environment(config)
-    
-    state_dim = 30
-    action_dim = 4 + 2 * config.M + 1
+
+    state_dim, action_dim = get_state_action_dims(config)
     
     training_logger.info(f"Agent config: state_dim={state_dim}, action_dim={action_dim}, num_agents={config.N}")
     

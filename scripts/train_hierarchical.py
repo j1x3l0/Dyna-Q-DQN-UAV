@@ -13,6 +13,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from system_model import Config, Environment
 from hierarchical_agent import HierarchicalAgent
+from training_utils import decay_epsilon, get_state_action_dims
 
 log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
 os.makedirs(log_dir, exist_ok=True)
@@ -40,34 +41,33 @@ stream_handler.setFormatter(formatter)
 training_logger.addHandler(file_handler)
 training_logger.addHandler(stream_handler)
 
-def train_hierarchical(case=1, episodes=500):
-    training_logger.info(f"Starting Hierarchical training - Case: {case}, Episodes: {episodes}")
-    
-    config = Config()
+def train_hierarchical(case=1, episodes=500, seed=42):
+    training_logger.info(f"Starting Hierarchical training - Case: {case}, Episodes: {episodes}, Seed: {seed}")
+
+    config = Config(seed=seed)
     env = Environment(config)
-    
-    state_dim = 30
-    action_dim = 4 + 2 * config.M + 1
-    
+
+    state_dim, action_dim = get_state_action_dims(config)
+
     training_logger.info(f"Agent config: state_dim={state_dim}, action_dim={action_dim}, num_agents={config.N}")
-    
+
     agent = HierarchicalAgent(state_dim, action_dim, config.N, config)
-    
+
     rewards_history = []
-    
+
     for episode in range(episodes):
         states = env.reset(case)
         total_reward = 0.0
-        
+
         while True:
             upper_actions = agent.upper_act(states)
             lower_actions = agent.lower_act(states)
-            
+
             full_actions = []
             for i in range(config.N):
                 full_action = np.concatenate([upper_actions[i], lower_actions[i]])
                 full_actions.append(full_action)
-            
+
             full_actions = np.array(full_actions)
             next_states, rewards, done = env.step(full_actions)
             step_info = env.last_step_info or {}
@@ -85,21 +85,23 @@ def train_hierarchical(case=1, episodes=500):
                 agent.update_lower(i)
                 agent.update_model(i)
                 agent.dyna_plan(i)
-            
+
             total_reward += np.sum(rewards)
             states = next_states
-            
+
             if done:
                 break
-        
+
         rewards_history.append(total_reward)
         agent.step_episode_schedulers()
-        
+        decay_epsilon(agent)
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
+
         if episode % 50 == 0:
-            training_logger.info(f"Episode {episode}, Total Reward: {total_reward:.2f}")
+            epsilon_str = f", Epsilon: {agent.epsilon:.4f}" if hasattr(agent, 'epsilon') else ""
+            training_logger.info(f"Episode {episode}, Total Reward: {total_reward:.2f}{epsilon_str}")
     
     results_dir = os.path.join(os.path.dirname(__file__), '..', 'results')
     os.makedirs(results_dir, exist_ok=True)

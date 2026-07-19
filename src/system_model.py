@@ -1,4 +1,5 @@
 import logging
+import random
 import numpy as np
 import torch
 import os
@@ -33,6 +34,8 @@ logger.addHandler(stream_handler)
 class Config:
     def __init__(self, seed=42):
         self.seed = seed
+        random.seed(seed)
+        np.random.seed(seed)
         self.N = 3
         self.M = 6
         self.F = 4

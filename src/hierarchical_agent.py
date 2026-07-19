@@ -499,6 +499,54 @@ class HierarchicalAgent:
         for source_param, target_param in zip(source.parameters(), target.parameters()):
             target_param.data.copy_(self.tau * source_param.data + (1 - self.tau) * target_param.data)
 
+    def save_checkpoint(self, filepath, episode):
+        checkpoint = {
+            'episode': episode,
+            'epsilon': self.epsilon,
+            'upper_actors': {i: self.upper_actors[i].state_dict() for i in range(self.num_agents)},
+            'target_upper_actors': {i: self.target_upper_actors[i].state_dict() for i in range(self.num_agents)},
+            'upper_critics': {i: self.upper_critics[i].state_dict() for i in range(self.num_agents)},
+            'target_upper_critics': {i: self.target_upper_critics[i].state_dict() for i in range(self.num_agents)},
+            'lower_dqns': {i: self.lower_dqns[i].state_dict() for i in range(self.num_agents)},
+            'target_lower_dqns': {i: self.target_lower_dqns[i].state_dict() for i in range(self.num_agents)},
+            'upper_actor_optimizers': {i: self.upper_actor_optimizers[i].state_dict() for i in range(self.num_agents)},
+            'upper_critic_optimizers': {i: self.upper_critic_optimizers[i].state_dict() for i in range(self.num_agents)},
+            'lower_optimizers': {i: self.lower_optimizers[i].state_dict() for i in range(self.num_agents)},
+            'upper_actor_schedulers': {i: self.upper_actor_schedulers[i].state_dict() for i in range(self.num_agents)},
+            'upper_critic_schedulers': {i: self.upper_critic_schedulers[i].state_dict() for i in range(self.num_agents)},
+            'lower_schedulers': {i: self.lower_schedulers[i].state_dict() for i in range(self.num_agents)},
+        }
+        if self.dyna_k > 0 and self.models:
+            checkpoint['models'] = {i: self.models[i].state_dict() for i in range(self.num_agents)}
+            checkpoint['model_optimizers'] = {i: self.model_optimizers[i].state_dict() for i in range(self.num_agents)}
+            checkpoint['model_schedulers'] = {i: self.model_schedulers[i].state_dict() for i in range(self.num_agents)}
+        torch.save(checkpoint, filepath)
+        logger.info(f"Checkpoint saved to {filepath} (episode {episode}, epsilon={self.epsilon:.4f}, dyna_k={self.dyna_k})")
+
+    def load_checkpoint(self, filepath):
+        checkpoint = torch.load(filepath, map_location=self.device, weights_only=False)
+        for i in range(self.num_agents):
+            self.upper_actors[i].load_state_dict(checkpoint['upper_actors'][i])
+            self.target_upper_actors[i].load_state_dict(checkpoint['target_upper_actors'][i])
+            self.upper_critics[i].load_state_dict(checkpoint['upper_critics'][i])
+            self.target_upper_critics[i].load_state_dict(checkpoint['target_upper_critics'][i])
+            self.lower_dqns[i].load_state_dict(checkpoint['lower_dqns'][i])
+            self.target_lower_dqns[i].load_state_dict(checkpoint['target_lower_dqns'][i])
+            self.upper_actor_optimizers[i].load_state_dict(checkpoint['upper_actor_optimizers'][i])
+            self.upper_critic_optimizers[i].load_state_dict(checkpoint['upper_critic_optimizers'][i])
+            self.lower_optimizers[i].load_state_dict(checkpoint['lower_optimizers'][i])
+            self.upper_actor_schedulers[i].load_state_dict(checkpoint['upper_actor_schedulers'][i])
+            self.upper_critic_schedulers[i].load_state_dict(checkpoint['upper_critic_schedulers'][i])
+            self.lower_schedulers[i].load_state_dict(checkpoint['lower_schedulers'][i])
+        if self.dyna_k > 0 and self.models and 'models' in checkpoint:
+            for i in range(self.num_agents):
+                self.models[i].load_state_dict(checkpoint['models'][i])
+                self.model_optimizers[i].load_state_dict(checkpoint['model_optimizers'][i])
+                self.model_schedulers[i].load_state_dict(checkpoint['model_schedulers'][i])
+        self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        logger.info(f"Checkpoint loaded from {filepath} (episode {checkpoint['episode']}, epsilon={self.epsilon:.4f})")
+        return checkpoint['episode']
+
 
 class HierarchicalNoDynaAgent:
     def __init__(self, state_dim, action_dim, num_agents, config):
@@ -738,7 +786,46 @@ class HierarchicalNoDynaAgent:
             self.upper_actor_schedulers[i].step()
             self.upper_critic_schedulers[i].step()
             self.lower_schedulers[i].step()
-    
+
+    def save_checkpoint(self, filepath, episode):
+        checkpoint = {
+            'episode': episode,
+            'epsilon': self.epsilon,
+            'upper_actors': {i: self.upper_actors[i].state_dict() for i in range(self.num_agents)},
+            'target_upper_actors': {i: self.target_upper_actors[i].state_dict() for i in range(self.num_agents)},
+            'upper_critics': {i: self.upper_critics[i].state_dict() for i in range(self.num_agents)},
+            'target_upper_critics': {i: self.target_upper_critics[i].state_dict() for i in range(self.num_agents)},
+            'lower_dqns': {i: self.lower_dqns[i].state_dict() for i in range(self.num_agents)},
+            'target_lower_dqns': {i: self.target_lower_dqns[i].state_dict() for i in range(self.num_agents)},
+            'upper_actor_optimizers': {i: self.upper_actor_optimizers[i].state_dict() for i in range(self.num_agents)},
+            'upper_critic_optimizers': {i: self.upper_critic_optimizers[i].state_dict() for i in range(self.num_agents)},
+            'lower_optimizers': {i: self.lower_optimizers[i].state_dict() for i in range(self.num_agents)},
+            'upper_actor_schedulers': {i: self.upper_actor_schedulers[i].state_dict() for i in range(self.num_agents)},
+            'upper_critic_schedulers': {i: self.upper_critic_schedulers[i].state_dict() for i in range(self.num_agents)},
+            'lower_schedulers': {i: self.lower_schedulers[i].state_dict() for i in range(self.num_agents)},
+        }
+        torch.save(checkpoint, filepath)
+        logger.info(f"Checkpoint saved to {filepath} (episode {episode}, epsilon={self.epsilon:.4f})")
+
+    def load_checkpoint(self, filepath):
+        checkpoint = torch.load(filepath, map_location=self.device, weights_only=False)
+        for i in range(self.num_agents):
+            self.upper_actors[i].load_state_dict(checkpoint['upper_actors'][i])
+            self.target_upper_actors[i].load_state_dict(checkpoint['target_upper_actors'][i])
+            self.upper_critics[i].load_state_dict(checkpoint['upper_critics'][i])
+            self.target_upper_critics[i].load_state_dict(checkpoint['target_upper_critics'][i])
+            self.lower_dqns[i].load_state_dict(checkpoint['lower_dqns'][i])
+            self.target_lower_dqns[i].load_state_dict(checkpoint['target_lower_dqns'][i])
+            self.upper_actor_optimizers[i].load_state_dict(checkpoint['upper_actor_optimizers'][i])
+            self.upper_critic_optimizers[i].load_state_dict(checkpoint['upper_critic_optimizers'][i])
+            self.lower_optimizers[i].load_state_dict(checkpoint['lower_optimizers'][i])
+            self.upper_actor_schedulers[i].load_state_dict(checkpoint['upper_actor_schedulers'][i])
+            self.upper_critic_schedulers[i].load_state_dict(checkpoint['upper_critic_schedulers'][i])
+            self.lower_schedulers[i].load_state_dict(checkpoint['lower_schedulers'][i])
+        self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        logger.info(f"Checkpoint loaded from {filepath} (episode {checkpoint['episode']}, epsilon={self.epsilon:.4f})")
+        return checkpoint['episode']
+
     def soft_update(self, source, target):
         for source_param, target_param in zip(source.parameters(), target.parameters()):
             target_param.data.copy_(self.tau * source_param.data + (1 - self.tau) * target_param.data)
