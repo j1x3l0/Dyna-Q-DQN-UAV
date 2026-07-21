@@ -363,11 +363,13 @@ class HierarchicalAgent:
         action_indices = actions_batch.argmax(dim=1)
         q_i = q_values.gather(1, action_indices.unsqueeze(1))
         
-        next_q_values = self.target_lower_dqns[agent_idx](next_states_batch)
-        next_max_q = next_q_values.max(dim=1)[0].unsqueeze(1)
-        
+        with torch.no_grad():
+            next_actions = self.lower_dqns[agent_idx](next_states_batch).argmax(dim=1)
+            next_q_values = self.target_lower_dqns[agent_idx](next_states_batch)
+            next_max_q = next_q_values.gather(1, next_actions.unsqueeze(1))
+
         y_i = rewards_batch.unsqueeze(1) + self.gamma * next_max_q * (1 - dones_batch.unsqueeze(1))
-        
+
         loss = nn.MSELoss()(q_i, y_i.detach())
         logger.debug(f"Lower Agent {agent_idx} DQN loss: {loss.item():.6f}")
         
@@ -470,8 +472,10 @@ class HierarchicalAgent:
             action_index = action_tensor.argmax().unsqueeze(0).unsqueeze(0)
             q_i = q_values.gather(1, action_index)
             
-            next_q_values = self.target_lower_dqns[agent_idx](next_state_pred_tensor)
-            next_max_q = next_q_values.max(dim=1)[0].unsqueeze(1)
+            with torch.no_grad():
+                next_action = self.lower_dqns[agent_idx](next_state_pred_tensor).argmax(dim=1).unsqueeze(1)
+                next_q_values = self.target_lower_dqns[agent_idx](next_state_pred_tensor)
+                next_max_q = next_q_values.gather(1, next_action)
             
             y_i = reward_pred_tensor + self.gamma * next_max_q * (1 - done_tensor)
             
@@ -768,8 +772,10 @@ class HierarchicalNoDynaAgent:
         action_indices = actions_batch.argmax(dim=1)
         q_i = q_values.gather(1, action_indices.unsqueeze(1))
         
-        next_q_values = self.target_lower_dqns[agent_idx](next_states_batch)
-        next_max_q = next_q_values.max(dim=1)[0].unsqueeze(1)
+        with torch.no_grad():
+            next_actions = self.lower_dqns[agent_idx](next_states_batch).argmax(dim=1)
+            next_q_values = self.target_lower_dqns[agent_idx](next_states_batch)
+            next_max_q = next_q_values.gather(1, next_actions.unsqueeze(1))
         
         y_i = rewards_batch.unsqueeze(1) + self.gamma * next_max_q * (1 - dones_batch.unsqueeze(1))
         

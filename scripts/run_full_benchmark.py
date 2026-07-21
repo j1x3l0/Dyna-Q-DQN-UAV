@@ -57,26 +57,24 @@ ALGO_CONFIGS = {
     'iddpg': {
         'name': 'iDDPG',
         'max_episodes': 8000,
-        'early_stop_patience': 1000,
-        'early_stop_min_delta': 0.01,    # 1% improvement required
+        'early_stop_patience': 1500,
+        'early_stop_min_delta': 0.01,
         'convergence_window': 500,
         'checkpoint_every': 500,
         'use_degradation_detection': False,
     },
     'maddpg': {
         'name': 'MADDPG',
-        'max_episodes': 5000,
-        'early_stop_patience': 800,
+        'max_episodes': 8000,
+        'early_stop_patience': 1500,
         'early_stop_min_delta': 0.01,
         'convergence_window': 500,
         'checkpoint_every': 500,
-        'use_degradation_detection': True,
-        'degradation_window': 1000,
-        'degradation_threshold': 0.30,   # 30% drop from peak → stop
+        'use_degradation_detection': False,
     },
     'nodyna': {
         'name': 'Hierarchical (NoDyna)',
-        'max_episodes': 10000,
+        'max_episodes': 8000,
         'early_stop_patience': 1500,
         'early_stop_min_delta': 0.01,
         'convergence_window': 500,
@@ -85,16 +83,16 @@ ALGO_CONFIGS = {
     },
     'dyna': {
         'name': 'Hierarchical (Dyna-Q)',
-        'max_episodes': 10000,
-        'early_stop_patience': 2000,
-        'early_stop_min_delta': 0.005,   # 0.5% — slow but steady improvement
+        'max_episodes': 8000,
+        'early_stop_patience': 1500,
+        'early_stop_min_delta': 0.01,
         'convergence_window': 500,
         'checkpoint_every': 500,
         'use_degradation_detection': False,
     },
 }
 
-DEFAULT_SEEDS = (42, 123, 2026)
+DEFAULT_SEEDS = (42, 123, 2026, 7, 2023)
 DEFAULT_CASE = 1
 
 
@@ -359,6 +357,24 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
 # ---------------------------------------------------------------------------
 # Aggregation & reporting
 # ---------------------------------------------------------------------------
+def compute_convergence_episode(rewards: np.ndarray, window: int = 100, threshold: float = 0.9) -> float:
+    """Return first episode where rolling avg reaches threshold * best_rolling_avg.
+
+    Measures sample efficiency: how many real episodes needed to 'mostly converge'.
+    'window' and 'threshold' should match EarlyStoppingTracker conventions.
+    Returns np.nan if not reached.
+    """
+    if len(rewards) < window:
+        return float(len(rewards))
+    rolling = np.convolve(rewards, np.ones(window) / window, mode='valid')
+    best = float(np.max(rolling))
+    target = threshold * best
+    for i, val in enumerate(rolling):
+        if val >= target:
+            return float(i + window)
+    return float('nan')
+
+
 def summarize(values: list) -> Tuple[float, float, float]:
     arr = np.asarray(values, dtype=float)
     mean = float(arr.mean())
@@ -379,6 +395,13 @@ def aggregate_results(run_results: List[RunResult]) -> dict:
         final_rewards = [float(np.mean(r[-50:])) if len(r) >= 50 else float(np.mean(r))
                         for r in aligned_rewards]
 
+        conv_episodes = [compute_convergence_episode(r.rewards) for r in algo_runs]
+        conv_valid = [c for c in conv_episodes if not np.isnan(c)]
+        early_rewards = [
+            float(np.mean(r.rewards[:min(500, len(r.rewards))])) if len(r.rewards) > 0 else 0.0
+            for r in algo_runs
+        ]
+
         rows.append({
             'algo': algo,
             'algo_name': ALGO_CONFIGS[algo]['name'],
@@ -387,6 +410,8 @@ def aggregate_results(run_results: List[RunResult]) -> dict:
             'stopped_early_count': sum(1 for r in algo_runs if r.stopped_early),
             'stop_reasons': [r.stop_reason for r in algo_runs],
             'final_reward': summarize(final_rewards),
+            'conv_episode': summarize(conv_valid) if conv_valid else (float('nan'), 0.0, 0.0),
+            'early_reward_500': summarize(early_rewards),
             'collision_events_avg': summarize([r.metrics['collision_events'] / r.episodes_completed for r in algo_runs]),
             'data_received_avg': summarize([r.metrics['data_received'] / r.episodes_completed for r in algo_runs]),
             'data_sent_avg': summarize([r.metrics['data_sent_to_rbs'] / r.episodes_completed for r in algo_runs]),
@@ -457,14 +482,20 @@ def write_report(run_results: List[RunResult], summary_rows: list,
         lines.append(f"  Energy consumed/ep: {mean:.2f} +- {std:.2f}")
         mean, std, _ = row['duration_avg']
         lines.append(f"  Duration (s): {mean:.1f} +- {std:.1f}")
+        conv_mean, conv_std, _ = row['conv_episode']
+        conv_str = f"{conv_mean:.0f} +- {conv_std:.0f}" if not np.isnan(conv_mean) else "N/A"
+        lines.append(f"  Convergence (eps to 90% peak): {conv_str}")
+        early_mean, early_std, _ = row['early_reward_500']
+        lines.append(f"  Early reward (first 500 eps): {early_mean:.2f} +- {early_std:.2f}")
 
     lines.append('')
     lines.append('=' * 80)
     lines.append('Cross-Algorithm Comparison')
     lines.append('=' * 80)
 
-    # Pairwise improvements
+    # Pairwise improvements (final reward)
     if len(summary_rows) >= 2:
+        lines.append('\n--- Final Reward Comparison ---')
         for i in range(len(summary_rows)):
             for j in range(i + 1, len(summary_rows)):
                 a_name = summary_rows[i]['algo_name']
@@ -476,6 +507,34 @@ def write_report(run_results: List[RunResult], summary_rows: list,
                 base = max(abs(a_mean), abs(b_mean), 1e-8)
                 pct = diff / base * 100
                 lines.append(f"  {a_name} vs {b_name}: {better} better by {diff:.2f} ({pct:.1f}%)")
+
+        # Sample efficiency comparison (convergence speed)
+        lines.append('\n--- Sample Efficiency (Convergence Speed) ---')
+        for i in range(len(summary_rows)):
+            for j in range(i + 1, len(summary_rows)):
+                a_name = summary_rows[i]['algo_name']
+                b_name = summary_rows[j]['algo_name']
+                a_conv, _, _ = summary_rows[i]['conv_episode']
+                b_conv, _, _ = summary_rows[j]['conv_episode']
+                if not np.isnan(a_conv) and not np.isnan(b_conv) and a_conv > 0 and b_conv > 0:
+                    faster_name = a_name if a_conv < b_conv else b_name
+                    slower_name = b_name if faster_name == a_name else a_name
+                    speedup = max(a_conv, b_conv) / min(a_conv, b_conv)
+                    lines.append(f"  {a_name} ({a_conv:.0f} eps) vs {b_name} ({b_conv:.0f} eps): "
+                                 f"{faster_name} converges {speedup:.2f}x faster than {slower_name}")
+
+        # Early reward comparison (first 500 eps)
+        lines.append('\n--- Early Reward (first 500 eps) ---')
+        for i in range(len(summary_rows)):
+            for j in range(i + 1, len(summary_rows)):
+                a_name = summary_rows[i]['algo_name']
+                b_name = summary_rows[j]['algo_name']
+                a_early, _, _ = summary_rows[i]['early_reward_500']
+                b_early, _, _ = summary_rows[j]['early_reward_500']
+                better = a_name if a_early > b_early else b_name
+                diff = abs(a_early - b_early)
+                lines.append(f"  {a_name} ({a_early:.2f}) vs {b_name} ({b_early:.2f}): "
+                             f"{better} better by {diff:.2f}")
 
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
@@ -565,6 +624,34 @@ def plot_comparison(summary_rows: list, timestamp: str = None) -> str:
     fig2.savefig(overlay_path, dpi=150)
     plt.close(fig2)
 
+    # ---- Sample efficiency overlay (x-axis = episodes, annotations for conv speed) ----
+    fig3, ax3 = plt.subplots(figsize=(12, 6))
+    for row in summary_rows:
+        algo = row['algo']
+        curve = row['reward_curve_mean']
+        x = np.arange(len(curve))
+        color = colors.get(algo, '#333333')
+        ax3.plot(x, curve, color=color, linewidth=1.8, label=row['algo_name'], alpha=0.85)
+        conv_mean, conv_std, _ = row['conv_episode']
+        if not np.isnan(conv_mean) and conv_mean < len(curve):
+            y_at_conv = curve[min(int(conv_mean), len(curve)-1)]
+            ax3.axvline(x=conv_mean, color=color, linestyle='--', alpha=0.4, linewidth=1)
+            ax3.annotate(f'{row["algo_name"]}\n{conv_mean:.0f} eps',
+                         xy=(conv_mean, y_at_conv),
+                         xytext=(conv_mean + len(curve)*0.02, y_at_conv),
+                         fontsize=8, color=color,
+                         arrowprops=dict(arrowstyle='->', color=color, alpha=0.5))
+
+    ax3.set_title('Sample Efficiency — Convergence Speed (90% peak)', fontsize=14)
+    ax3.set_xlabel('Episode (real environment interactions)')
+    ax3.set_ylabel('Episode Reward')
+    ax3.legend(fontsize=11)
+    ax3.grid(True, alpha=0.25)
+    fig3.tight_layout()
+    sample_eff_path = os.path.join(RESULTS_DIR, f'sample_efficiency_{timestamp}.png')
+    fig3.savefig(sample_eff_path, dpi=150)
+    plt.close(fig3)
+
     return chart_path, overlay_path
 
 
@@ -580,8 +667,8 @@ def parse_args():
                         help='Comma-separated seeds (default: 42,123,2026)')
     parser.add_argument('--case', type=int, default=DEFAULT_CASE,
                         help='Environment case (1 or 2)')
-    parser.add_argument('--dyna-k', type=int, default=None,
-                        help='Override dyna_k for dyna algorithm (default: from Config)')
+    parser.add_argument('--dyna-k', type=str, default=None,
+                        help='Comma-separated Dyna-K values for sweep, e.g. "1,5,10,20" (default: from Config)')
     return parser.parse_args()
 
 
@@ -589,9 +676,7 @@ def main():
     args = parse_args()
     algos = [a.strip() for a in args.algos.split(',')]
     seeds = [int(s.strip()) for s in args.seeds.split(',')]
-    config_override = {}
-    if args.dyna_k is not None:
-        config_override['dyna_k'] = args.dyna_k
+    dyna_k_values = [int(k) for k in args.dyna_k.split(',')] if args.dyna_k else [None]
 
     print(f"{'='*60}")
     print(f"UAV DRL Full Benchmark")
@@ -599,27 +684,42 @@ def main():
     print(f"Algorithms: {[ALGO_CONFIGS[a]['name'] for a in algos]}")
     print(f"Seeds: {seeds}")
     print(f"Case: {args.case}")
-    if config_override:
-        print(f"Config override: {config_override}")
+    if args.dyna_k:
+        print(f"Dyna-K sweep: {dyna_k_values}")
     print()
 
-    total_runs = len(algos) * len(seeds)
+    total_runs = len(algos) * len(seeds) * len(dyna_k_values)
     run_results = []
 
-    for idx, algo in enumerate(algos):
-        for seed in seeds:
-            run_num = idx * len(seeds) + seeds.index(seed) + 1
-            print(f"\n[Run {run_num}/{total_runs}] {ALGO_CONFIGS[algo]['name']} seed={seed}")
-            print(f"  Max episodes: {ALGO_CONFIGS[algo]['max_episodes']}")
-            result = run_single_experiment(algo, seed, config_override, case=args.case)
-            run_results.append(result)
-            print(f"  Completed: {result.episodes_completed} eps, "
-                  f"early_stop={result.stopped_early}, duration={result.duration:.1f}s")
-            final = float(np.mean(result.rewards[-50:])) if len(result.rewards) >= 50 else float(np.mean(result.rewards))
-            print(f"  Final reward (last 50): {final:.2f}")
+    run_idx = 0
+    for k in dyna_k_values:
+        co = {}
+        k_tag = ''
+        if k is not None:
+            co['dyna_k'] = k
+            k_tag = f'k{k}'
+        for algo in algos:
+            for seed in seeds:
+                run_idx += 1
+                print(f"\n[Run {run_idx}/{total_runs}] {ALGO_CONFIGS[algo]['name']} seed={seed} {k_tag}")
+                print(f"  Max episodes: {ALGO_CONFIGS[algo]['max_episodes']}")
+                result = run_single_experiment(algo, seed, co, case=args.case)
+                run_results.append(result)
+                print(f"  Completed: {result.episodes_completed} eps, "
+                      f"early_stop={result.stopped_early}, duration={result.duration:.1f}s")
+                final = float(np.mean(result.rewards[-50:])) if len(result.rewards) >= 50 else float(np.mean(result.rewards))
+                print(f"  Final reward (last 50): {final:.2f}")
 
-    # Aggregate and report
+    # Sanity check: verify data collection is functioning
     print(f"\n{'='*60}")
+    print("Sanity check...")
+    for r in run_results:
+        eps = r.episodes_completed
+        data_recv = r.metrics.get('data_received', 0.0)
+        avg_data = data_recv / max(eps, 1)
+        if avg_data < 1.0:
+            print(f"  ⚠ WARNING: {r.algo} seed={r.seed}: avg data_received/ep={avg_data:.4f} "
+                  f"(total={data_recv:.2f} over {eps} eps) — reward signal may be degenerate")
     print("Aggregating results...")
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     summary_rows = aggregate_results(run_results)
@@ -631,6 +731,7 @@ def main():
     chart_path, overlay_path = plot_comparison(summary_rows, timestamp)
     print(f"Charts: {chart_path}")
     print(f"Overlay: {overlay_path}")
+    print(f"Sample efficiency: {os.path.join(RESULTS_DIR, f'sample_efficiency_{timestamp}.png')}")
 
     print(f"\n{'='*60}")
     print("Final Results Summary:")

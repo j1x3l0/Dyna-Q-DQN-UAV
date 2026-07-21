@@ -63,6 +63,7 @@ class Config:
         self.reward_scale = 1.0
         self.P_0 = 5.0
         self.denom_epsilon = 1e-6
+        self.omega_0 = 1e-1
         self.boundary = 50.0
         self.d_soft = 10.0
         self.eta_soft = 5.0
@@ -91,7 +92,7 @@ class ChannelModel:
     def __init__(self, config, rng):
         self.config = config
         self.rng = rng
-        self.omega_0 = 1e-3
+        self.omega_0 = getattr(config, 'omega_0', 1e-3)
         logger.info(f"ChannelModel initialized: omega_0={self.omega_0}, alpha={config.alpha}, K={config.K}")
     
     def large_scale_fading(self, distance):
@@ -335,14 +336,16 @@ class Environment:
             }
         }
         
+        self.calculate_rates()
+
         for i, uav in enumerate(self.uavs):
             action = actions[i]
             direction = action[:3]
             direction = direction / (np.linalg.norm(direction) + 1e-6)
             speed = np.abs(action[3])
             
-            logger.info(f"UAV {i} action: direction={direction[:2]}, speed={speed:.2f}, scheduled={bool(action[-1])}")
-            logger.debug(f"UAV {i} full action: dir={direction}, speed={speed}, access={action[4:10]}, mode={action[10:16]}, scheduled={action[-1]}")
+            logger.info(f"UAV {i} action: direction={direction[:2]}, speed={speed:.2f}")
+            logger.debug(f"UAV {i} full action: dir={direction}, speed={speed}, access_idx4={action[4]:.2f}")
             
             uav.move(direction, speed)
 
@@ -365,9 +368,9 @@ class Environment:
                 logger.info(f"UAV {i} collision penalty: -{self.config.eta * collision_count}")
             
             coverage = self.get_coverage(uav)
-            access_control = action[4:4+self.config.M]
-            mode_selection = action[4+self.config.M:4+2*self.config.M]
-            uav.scheduled = bool(action[-1])
+            uav.scheduled = bool(action[4])
+            access_control = action[5:5+self.config.M]
+            mode_selection = action[5+self.config.M:5+2*self.config.M]
             
             logger.info(f"UAV {i} coverage: {coverage}, scheduled={uav.scheduled}")
             
@@ -388,13 +391,17 @@ class Environment:
                     logger.debug(f"GU {gu_idx} access granted, mode={mode} (1=RF, 0=backscatter)")
                     
                     if mode == 1:
-                        data_sent = min(gu.buffer, gu.data_rate_a)
                         consumed = self.config.p_m * tau_z
-                        harvested = self.calculate_harvested_energy(uav, gu_idx, access_control, mode_selection)
-                        gu.update_energy(harvested, consumed)
-                        sensing_energy_consumed += consumed
-                        harvested_energy_total += harvested
-                        logger.info(f"GU {gu_idx} RF mode: sent={data_sent:.4f}, consumed={consumed:.4f}, harvested={harvested:.4f}")
+                        if gu.energy >= consumed:
+                            data_sent = min(gu.buffer, gu.data_rate_a)
+                            harvested = self.calculate_harvested_energy(uav, gu_idx, access_control, mode_selection)
+                            gu.update_energy(harvested, consumed)
+                            sensing_energy_consumed += consumed
+                            harvested_energy_total += harvested
+                            logger.info(f"GU {gu_idx} RF mode: sent={data_sent:.4f}, consumed={consumed:.4f}, harvested={harvested:.4f}")
+                        else:
+                            data_sent = 0.0
+                            logger.info(f"GU {gu_idx} RF mode skipped: energy={gu.energy:.4f} < consumed={consumed:.4f}")
                     else:
                         data_sent = min(gu.buffer, gu.data_rate_b)
                         consumed = self.config.p_A * tau_z
