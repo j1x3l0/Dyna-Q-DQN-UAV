@@ -34,6 +34,8 @@ from system_model import Config, Environment
 from maddpg_agent import MADDPGAgent
 from hierarchical_agent import HierarchicalAgent, HierarchicalNoDynaAgent
 from iddpg_agent import iDDPGAgent
+from cop_maddpg_agent import CoPMADDPGAgent
+from matd3_agent import MATD3Agent
 from training_utils import (
     get_state_action_dims,
     decay_epsilon,
@@ -83,6 +85,24 @@ ALGO_CONFIGS = {
     },
     'dyna': {
         'name': 'Hierarchical (Dyna-Q)',
+        'max_episodes': 8000,
+        'early_stop_patience': 1500,
+        'early_stop_min_delta': 0.01,
+        'convergence_window': 500,
+        'checkpoint_every': 500,
+        'use_degradation_detection': False,
+    },
+    'cop_maddpg': {
+        'name': 'CoP-MADDPG',
+        'max_episodes': 8000,
+        'early_stop_patience': 1500,
+        'early_stop_min_delta': 0.01,
+        'convergence_window': 500,
+        'checkpoint_every': 500,
+        'use_degradation_detection': False,
+    },
+    'matd3': {
+        'name': 'MATD3',
         'max_episodes': 8000,
         'early_stop_patience': 1500,
         'early_stop_min_delta': 0.01,
@@ -176,6 +196,10 @@ def create_agent(algo: str, state_dim: int, action_dim: int, config: Config):
         return HierarchicalNoDynaAgent(state_dim, action_dim, config.N, config)
     elif algo == 'dyna':
         return HierarchicalAgent(state_dim, action_dim, config.N, config)
+    elif algo == 'cop_maddpg':
+        return CoPMADDPGAgent(state_dim, action_dim, config.N, config)
+    elif algo == 'matd3':
+        return MATD3Agent(state_dim, action_dim, config.N, config)
     else:
         raise ValueError(f"Unknown algorithm: {algo}")
 

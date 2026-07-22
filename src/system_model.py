@@ -69,6 +69,7 @@ class Config:
         self.eta_soft = 5.0
         self.init_min_separation = 15.0
         self.dyna_k = 1
+        self.reward_mode = 'ee_ratio'  # 'ee_ratio' or 'additive'
 
         seed_sequence = SeedSequence(seed)
         env_seq, action_seq, replay_seq, model_seq, dyna_seq, torch_seq = seed_sequence.spawn(6)
@@ -439,7 +440,14 @@ class Environment:
             ee_ratio = ee_numerator / total_energy
 
             energy_consumed = sensing_energy_consumed + forward_energy_consumed
-            upper_reward = ee_ratio * self.config.reward_scale - collision_penalty
+
+            if self.config.reward_mode == 'additive':
+                # Additive reward: data throughput - energy cost - collision penalty
+                upper_reward = ee_numerator - self.config.eta * energy_consumed - collision_penalty
+            else:
+                # EE ratio reward: energy efficiency (bits/Joule) - collision penalty
+                upper_reward = ee_ratio * self.config.reward_scale - collision_penalty
+
             lower_reward = data_received - self.config.eta1 * harvested_energy_total
             rewards[i] = upper_reward
             uav.energy -= forward_energy_consumed
