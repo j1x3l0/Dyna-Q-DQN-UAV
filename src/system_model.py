@@ -336,8 +336,6 @@ class Environment:
             }
         }
         
-        self.calculate_rates()
-
         for i, uav in enumerate(self.uavs):
             action = actions[i]
             direction = action[:3]
@@ -348,6 +346,7 @@ class Environment:
             logger.debug(f"UAV {i} full action: dir={direction}, speed={speed}, access_idx4={action[4]:.2f}")
             
             uav.move(direction, speed)
+            self.calculate_rates()
 
             collision_count = 0
             collision_penalty = 0.0
