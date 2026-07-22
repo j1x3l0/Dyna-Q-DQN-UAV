@@ -55,21 +55,6 @@ class MessageEncoder(nn.Module):
         return self.tanh(self.fc2(x))
 
 
-class MessageDecoder(nn.Module):
-    """Decode received messages into an augmented state representation."""
-    def __init__(self, state_dim, msg_dim=32, num_agents=3, hidden_dim=64):
-        super().__init__()
-        self.fc1 = nn.Linear(state_dim + msg_dim * (num_agents - 1), hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, state_dim)
-        self.relu = nn.ReLU()
-
-    def forward(self, own_state, messages):
-        """own_state: (batch, state_dim), messages: list of (batch, msg_dim)"""
-        combined = torch.cat([own_state] + messages, dim=1)
-        return self.relu(self.fc1(combined))
-        # Return raw for actor to use; can also pass through fc2 if needed
-
-
 class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=64):
         super().__init__()
@@ -109,6 +94,7 @@ class CoPMADDPGAgent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.msg_dim = 32
+        self.aug_dim = state_dim + self.msg_dim * (num_agents - 1)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         torch.manual_seed(config.torch_seed)
         if torch.cuda.is_available():
@@ -116,30 +102,29 @@ class CoPMADDPGAgent:
         self.action_rng = config.rngs['action']
         self.replay_rng = config.rngs['replay']
 
-        # Communication modules
+        # Communication encoders: state → message
         self.encoders = [MessageEncoder(state_dim, self.msg_dim).to(self.device)
-                         for _ in range(num_agents)]
-        self.decoders = [MessageDecoder(state_dim, self.msg_dim, num_agents).to(self.device)
                          for _ in range(num_agents)]
         self.encoder_optimizers = [optim.Adam(self.encoders[i].parameters(), lr=1e-4)
                                    for i in range(num_agents)]
-        self.decoder_optimizers = [optim.Adam(self.decoders[i].parameters(), lr=1e-4)
-                                   for i in range(num_agents)]
-
-        # Standard MADDPG components
-        self.actors = [Actor(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
-        self.critics = [Critic(state_dim * num_agents, action_dim * num_agents).to(self.device)
-                        for _ in range(num_agents)]
-        self.target_actors = [Actor(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
-        self.target_critics = [Critic(state_dim * num_agents, action_dim * num_agents).to(self.device)
-                               for _ in range(num_agents)]
         self.target_encoders = [MessageEncoder(state_dim, self.msg_dim).to(self.device)
                                 for _ in range(num_agents)]
+        for i in range(num_agents):
+            self.target_encoders[i].load_state_dict(self.encoders[i].state_dict())
+
+        # Actors receive augmented state (own state + others' messages)
+        self.actors = [Actor(self.aug_dim, action_dim).to(self.device) for _ in range(num_agents)]
+        self.target_actors = [Actor(self.aug_dim, action_dim).to(self.device) for _ in range(num_agents)]
+
+        # Critics unchanged: full centralized state-action input
+        self.critics = [Critic(state_dim * num_agents, action_dim * num_agents).to(self.device)
+                        for _ in range(num_agents)]
+        self.target_critics = [Critic(state_dim * num_agents, action_dim * num_agents).to(self.device)
+                               for _ in range(num_agents)]
 
         for i in range(num_agents):
             self.target_actors[i].load_state_dict(self.actors[i].state_dict())
             self.target_critics[i].load_state_dict(self.critics[i].state_dict())
-            self.target_encoders[i].load_state_dict(self.encoders[i].state_dict())
 
         self.actor_optimizers = [optim.Adam(self.actors[i].parameters(), lr=1e-3)
                                  for i in range(num_agents)]
@@ -170,7 +155,7 @@ class CoPMADDPGAgent:
         return augmented
 
     def act(self, states, noise=True):
-        states_tensor = torch.FloatTensor(states).to(self.device)
+        states_tensor = torch.FloatTensor(states).to(self.device)  # (N, state_dim)
         augmented = self.communicate(states_tensor)
         actions = []
         for i in range(self.num_agents):
@@ -185,66 +170,89 @@ class CoPMADDPGAgent:
     def add_memory(self, states, actions, rewards, next_states, dones):
         self.memory.append((states, actions, rewards, next_states, dones))
 
+    def _batch_augment(self, batch_states, use_target=False):
+        """Compute augmented states for a batch. batch_states: (B, N, state_dim).
+
+        Returns list of N tensors, each (B, input_dim_for_actor) where
+        input_dim = state_dim + (N-1)*msg_dim.
+        """
+        B, N, _ = batch_states.shape
+        encs = self.target_encoders if use_target else self.encoders
+        # msg[j]: (B, msg_dim)
+        msgs = [encs[j](batch_states[:, j]) for j in range(N)]
+        augmented = []
+        for i in range(N):
+            other = [msgs[j].detach() for j in range(N) if j != i]
+            # own state: (B, state_dim), other msgs: N-1 × (B, msg_dim)
+            aug = torch.cat([batch_states[:, i]] + other, dim=1)
+            augmented.append(aug)
+        return augmented
+
     def update(self):
         if len(self.memory) < self.batch_size:
             return
 
         batch = self.replay_rng.choice(len(self.memory), self.batch_size, replace=False)
-        s, a, r, ns, d = [], [], [], [], []
+        s_list, a_list, r_list, ns_list, d_list = [], [], [], [], []
         for idx in batch:
             st, ac, rw, nst, dn = self.memory[idx]
-            s.append(st); a.append(ac); r.append(rw); ns.append(nst); d.append(dn)
+            s_list.append(st); a_list.append(ac)
+            r_list.append(rw); ns_list.append(nst); d_list.append(dn)
 
-        states_b = torch.FloatTensor(np.array(s)).to(self.device)
-        actions_b = torch.FloatTensor(np.array(a)).to(self.device)
-        rewards_b = torch.FloatTensor(np.array(r)).to(self.device)
-        next_states_b = torch.FloatTensor(np.array(ns)).to(self.device)
-        dones_b = torch.FloatTensor(np.array(d)).to(self.device)
+        states_b = torch.FloatTensor(np.array(s_list)).to(self.device)       # (B, N, sd)
+        actions_b = torch.FloatTensor(np.array(a_list)).to(self.device)     # (B, N, ad)
+        rewards_b = torch.FloatTensor(np.array(r_list)).to(self.device)     # (B, N)
+        next_states_b = torch.FloatTensor(np.array(ns_list)).to(self.device) # (B, N, sd)
+        dones_b = torch.FloatTensor(np.array(d_list)).to(self.device)       # (B,)
+
+        s_cat = states_b.reshape(self.batch_size, -1)        # (B, N*sd)
+        a_cat = actions_b.reshape(self.batch_size, -1)       # (B, N*ad)
+        ns_cat = next_states_b.reshape(self.batch_size, -1)  # (B, N*sd)
+
+        # Compute target augmented states (using target encoders)
+        ns_aug = self._batch_augment(next_states_b, use_target=True)
+        # Compute current augmented states (using online encoders, for actor update)
+        s_aug = self._batch_augment(states_b, use_target=False)
 
         for i in range(self.num_agents):
-            # Critic update
+            # --- Twin-target critic update (clipped double-Q style) ---
             with torch.no_grad():
-                ns_i = next_states_b[:, i]
-                tgt_augs = []
+                tgt_actions = []
                 for j in range(self.num_agents):
-                    other_msgs_ns = [self.target_encoders[k](next_states_b[:, k])
-                                     for k in range(self.num_agents) if k != j]
-                    aug_ns = torch.cat([ns_i] + other_msgs_ns, dim=1) if j == i else ns_i
-                    tgt_augs.append(self.target_actors[j](aug_ns if j == i else ns_i))
-                tgt_actions = torch.cat(tgt_augs, dim=1)
-                ns_cat = next_states_b.view(self.batch_size, -1)
+                    # Use target actor with augmented next-state for agent j
+                    tgt_act = self.target_actors[j](ns_aug[j])
+                    tgt_actions.append(tgt_act)
+                tgt_actions = torch.cat(tgt_actions, dim=1)  # (B, N*ad)
                 tgt_q = self.target_critics[i](ns_cat, tgt_actions)
                 y = rewards_b[:, i].unsqueeze(1) + self.gamma * tgt_q * (1 - dones_b.unsqueeze(1))
 
-            s_cat = states_b.view(self.batch_size, -1)
-            a_cat = actions_b.view(self.batch_size, -1)
-            critic_loss = nn.MSELoss()(self.critics[i](s_cat, a_cat), y.detach())
+            # Critic loss (online)
+            cr_loss = nn.MSELoss()(self.critics[i](s_cat, a_cat), y.detach())
             self.critic_optimizers[i].zero_grad()
-            critic_loss.backward()
+            cr_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.critics[i].parameters(), self.clip_norm)
             self.critic_optimizers[i].step()
 
-            # Actor + Comm update
+            # --- Actor + Encoder update ---
             self.actor_optimizers[i].zero_grad()
             self.encoder_optimizers[i].zero_grad()
-            self.decoder_optimizers[i].zero_grad()
 
-            aug_i = self.communicate(states_b[:, i])[i] if i < self.num_agents else states_b[:, i]
             cur_actions = []
             for j in range(self.num_agents):
                 if j == i:
-                    cur_actions.append(self.actors[j](aug_i))
+                    cur_actions.append(self.actors[j](s_aug[j]))
                 else:
                     cur_actions.append(actions_b[:, j].detach())
-            cur_actions = torch.cat(cur_actions, dim=1)
-            actor_loss = -self.critics[i](s_cat, cur_actions).mean()
+            cur_actions = torch.cat(cur_actions, dim=1)  # (B, N*ad)
 
+            actor_loss = -self.critics[i](s_cat, cur_actions).mean()
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.actors[i].parameters(), self.clip_norm)
+            torch.nn.utils.clip_grad_norm_(self.encoders[i].parameters(), self.clip_norm)
             self.actor_optimizers[i].step()
             self.encoder_optimizers[i].step()
-            self.decoder_optimizers[i].step()
 
+            # Soft update targets
             self.soft_update(self.actors[i], self.target_actors[i])
             self.soft_update(self.critics[i], self.target_critics[i])
             self.soft_update(self.encoders[i], self.target_encoders[i])
@@ -265,6 +273,7 @@ class CoPMADDPGAgent:
             'target_encoders': {i: self.target_encoders[i].state_dict() for i in range(self.num_agents)},
             'actor_optimizers': {i: self.actor_optimizers[i].state_dict() for i in range(self.num_agents)},
             'critic_optimizers': {i: self.critic_optimizers[i].state_dict() for i in range(self.num_agents)},
+            'encoder_optimizers': {i: self.encoder_optimizers[i].state_dict() for i in range(self.num_agents)},
         }
         torch.save(ckpt, filepath)
         logger.info(f"CoP-MADDPG checkpoint saved to {filepath}")
@@ -280,6 +289,8 @@ class CoPMADDPGAgent:
             self.target_encoders[i].load_state_dict(ckpt['target_encoders'][i])
             self.actor_optimizers[i].load_state_dict(ckpt['actor_optimizers'][i])
             self.critic_optimizers[i].load_state_dict(ckpt['critic_optimizers'][i])
+            if 'encoder_optimizers' in ckpt:
+                self.encoder_optimizers[i].load_state_dict(ckpt['encoder_optimizers'][i])
         logger.info(f"CoP-MADDPG checkpoint loaded from {filepath}")
         return ckpt['episode']
 
