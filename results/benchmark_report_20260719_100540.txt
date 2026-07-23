@@ -1,0 +1,38 @@
+================================================================================
+UAV DRL Full Benchmark Report
+================================================================================
+Generated: 2026-07-19 10:05:40
+Case: 1
+
+Algorithm configurations:
+  iDDPG: max_eps=8000, patience=1000, degradation=False
+  MADDPG: max_eps=5000, patience=800, degradation=True
+  Hierarchical (NoDyna): max_eps=10000, patience=1500, degradation=False
+  Hierarchical (Dyna-Q): max_eps=10000, patience=2000, degradation=False
+
+================================================================================
+Per-Run Results
+================================================================================
+Algo       Seed    Eps  EarlyStop    FinalReward  Duration(s) Reason
+--------------------------------------------------------------------
+iddpg        42   2499       True          -2.64       9104.1 convergence: no improvement (1.0%) in last 1000 episodes
+iddpg       123   2314       True           0.00       8458.7 convergence: no improvement (1.0%) in last 1000 episodes
+iddpg      2026   2692       True          -0.47       9755.3 convergence: no improvement (1.0%) in last 1000 episodes
+
+================================================================================
+Aggregated Results (mean +- std over seeds)
+================================================================================
+
+--- iDDPG ---
+  Runs: 3, Early stopped: 3
+  Min episodes (aligned): 2314
+  Final reward (last 50): -1.70 +- 2.95 (95% CI: +-3.34)
+  Collision events/ep: 0.16 +- 0.04
+  Data received/ep: 0.00 +- 0.00
+  Data sent to RBS/ep: 0.00 +- 0.00
+  Energy consumed/ep: 14.47 +- 6.79
+  Duration (s): 9106.0 +- 648.3
+
+================================================================================
+Cross-Algorithm Comparison
+================================================================================

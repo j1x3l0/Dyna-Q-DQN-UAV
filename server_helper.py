@@ -14,10 +14,10 @@ import time
 
 import paramiko
 
-HOST = "hz-4.matpool.com"
-PORT = 27301
+HOST = "172.16.30.53"
+PORT = 22
 USER = "root"
-PASSWORD = "IP#T=jXj#ol[Fs1d"
+PASSWORD = "lingyi@2026"
 REPO_URL = "git@github.com:j1x3l0/Dyna-Q-DQN-UAV.git"
 REPO_DIR = "/root/Dyna-Q-DQN-UAV"
 

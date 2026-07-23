@@ -33,21 +33,25 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 class Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim=64):
+    def __init__(self, state_dim, continuous_dim, discrete_dim, hidden_dim=64):
         super(Actor, self).__init__()
-        logger.info(f"Creating Actor: state_dim={state_dim}, action_dim={action_dim}, hidden_dim={hidden_dim}")
+        logger.info(f"Creating Actor: state_dim={state_dim}, continuous_dim={continuous_dim}, discrete_dim={discrete_dim}, hidden_dim={hidden_dim}")
+        self.continuous_dim = continuous_dim
+        self.discrete_dim = discrete_dim
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, action_dim)
+        self.fc3_cont = nn.Linear(hidden_dim, continuous_dim)
+        self.fc3_disc = nn.Linear(hidden_dim, discrete_dim)
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
-    
+
     def forward(self, x):
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
-        x = self.tanh(self.fc3(x))
-        return x
+        cont = self.tanh(self.fc3_cont(x))
+        disc = self.sigmoid(self.fc3_disc(x))
+        return torch.cat([cont, disc], dim=-1)
 
 class Critic(nn.Module):
     def __init__(self, state_dim, action_dim, hidden_dim=64):
@@ -85,13 +89,14 @@ class MADDPGAgent:
         logger.info(f"MADDPG params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
         
         logger.info("Creating actor networks...")
-        self.actors = [Actor(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
-        
+        # M9: 前4维(direction+speed)用tanh，剩余(scheduled/access/mode)用sigmoid，避免tanh将离散输出系统性推向0
+        self.actors = [Actor(state_dim, 4, action_dim - 4).to(self.device) for _ in range(num_agents)]
+
         logger.info("Creating critic networks...")
         self.critics = [Critic(state_dim * num_agents, action_dim * num_agents).to(self.device) for _ in range(num_agents)]
-        
+
         logger.info("Creating target actor networks...")
-        self.target_actors = [Actor(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
+        self.target_actors = [Actor(state_dim, 4, action_dim - 4).to(self.device) for _ in range(num_agents)]
         
         logger.info("Creating target critic networks...")
         self.target_critics = [Critic(state_dim * num_agents, action_dim * num_agents).to(self.device) for _ in range(num_agents)]
@@ -102,8 +107,8 @@ class MADDPGAgent:
             self.target_critics[i].load_state_dict(self.critics[i].state_dict())
         
         logger.info("Creating optimizers...")
-        self.actor_optimizers = [optim.Adam(self.actors[i].parameters(), lr=1e-3) for i in range(num_agents)]
-        self.critic_optimizers = [optim.Adam(self.critics[i].parameters(), lr=1e-4) for i in range(num_agents)]
+        self.actor_optimizers = [optim.Adam(self.actors[i].parameters(), lr=1e-4) for i in range(num_agents)]
+        self.critic_optimizers = [optim.Adam(self.critics[i].parameters(), lr=1e-3) for i in range(num_agents)]
         
         logger.info("Creating learning rate schedulers...")
         self.actor_schedulers = [optim.lr_scheduler.StepLR(self.actor_optimizers[i], step_size=500, gamma=0.9) for i in range(num_agents)]
@@ -115,6 +120,10 @@ class MADDPGAgent:
         self.tau = 0.01
         self.batch_size = 32
         self.clip_norm = 1.0
+        # M7: 目标网络更新模式开关('soft'软更新/'hard'周期硬替换)，论文用hard每100轮替换
+        self.target_update_mode = getattr(config, 'target_update_mode', 'hard')
+        self.hard_update_every = getattr(config, 'hard_update_every', 100)
+        self._hard_counter = 0
         
         logger.info(f"Memory capacity: {self.memory.maxlen}, gamma={self.gamma}, tau={self.tau}, batch_size={self.batch_size}, clip_norm={self.clip_norm}")
         logger.info("=" * 60)
@@ -229,7 +238,15 @@ class MADDPGAgent:
         for i in range(self.num_agents):
             self.actor_schedulers[i].step()
             self.critic_schedulers[i].step()
-    
+        if self.target_update_mode == 'hard':
+            self._hard_counter += 1
+            if self._hard_counter >= self.hard_update_every:
+                self._hard_counter = 0
+                for i in range(self.num_agents):
+                    self.target_actors[i].load_state_dict(self.actors[i].state_dict())
+                    self.target_critics[i].load_state_dict(self.critics[i].state_dict())
+                logger.debug(f"MADDPG hard target sync at episode boundary (every {self.hard_update_every})")
+
     def save_checkpoint(self, filepath, episode):
         checkpoint = {
             'episode': episode,
@@ -260,5 +277,8 @@ class MADDPGAgent:
         return checkpoint['episode']
 
     def soft_update(self, source, target):
+        # M7: 硬替换模式下跳过逐步软更新，由step_episode_schedulers周期性硬拷贝
+        if getattr(self, 'target_update_mode', 'soft') == 'hard':
+            return
         for source_param, target_param in zip(source.parameters(), target.parameters()):
             target_param.data.copy_(self.tau * source_param.data + (1 - self.tau) * target_param.data)

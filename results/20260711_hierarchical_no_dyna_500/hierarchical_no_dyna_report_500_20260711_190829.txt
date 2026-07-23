@@ -1,0 +1,33 @@
+============================================================
+Hierarchical (MADDPG+DQN, no Dyna-Q) Training Report
+============================================================
+
+Experiment Time: 2026-07-11 19:22:29
+Training Episodes: 500
+Case: 1
+
+============================================================
+RESULTS SUMMARY
+============================================================
+
+Final Average Reward (last 50): -5764.69
+Best Reward: -0.70
+Worst Reward: -26702.97
+Standard Deviation: 7608.47
+
+============================================================
+CONFIGURATION
+============================================================
+
+System Parameters:
+  - Number of UAVs (N): 3
+  - Number of Ground Users (M): 6
+  - Number of Resource Blocks (F): 4
+
+Training Parameters:
+  - Learning Rate: 1e-4
+  - Gamma: 0.95
+  - Tau: 0.01
+  - Batch Size: 32
+  - Memory Size: 2000
+  - Dyna-Q: NOT USED

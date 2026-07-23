@@ -25,7 +25,8 @@ import matplotlib.pyplot as plt
 
 def get_state_action_dims(config):
     """Return (state_dim, action_dim) for the given Config."""
-    state_dim = 30
+    # M4: 状态维度由Config依据per-RB信道信息推导
+    state_dim = getattr(config, 'state_dim', 6 + config.F + config.M * (2 + config.F))
     action_dim = 4 + 2 * config.M + 1
     return state_dim, action_dim
 
@@ -81,7 +82,10 @@ def decay_epsilon(agent):
 
     Call once per episode. Handles HierarchicalAgent, HierarchicalNoDynaAgent.
     Safe no-op for MADDPGAgent and iDDPGAgent (which lack epsilon attributes).
+    M8: 在'fixed'模式下保持epsilon恒定，不衰减。
     """
+    if hasattr(agent, 'epsilon_mode', None) and getattr(agent, 'epsilon_mode', None) == 'fixed':
+        return
     if hasattr(agent, 'epsilon') and hasattr(agent, 'epsilon_decay') and hasattr(agent, 'epsilon_min'):
         agent.epsilon = max(agent.epsilon_min, agent.epsilon * agent.epsilon_decay)
 

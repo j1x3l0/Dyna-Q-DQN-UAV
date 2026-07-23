@@ -1,0 +1,41 @@
+================================================================================
+UAV DRL Full Benchmark Report
+================================================================================
+Generated: 2026-07-22 21:49:38
+Case: 1
+
+Algorithm configurations:
+  iDDPG: max_eps=8000, patience=1500, degradation=False
+  MADDPG: max_eps=8000, patience=1500, degradation=False
+  Hierarchical (NoDyna): max_eps=8000, patience=1500, degradation=False
+  Hierarchical (Dyna-Q): max_eps=8000, patience=1500, degradation=False
+  CoP-MADDPG: max_eps=8000, patience=1500, degradation=False
+  MATD3: max_eps=8000, patience=1500, degradation=False
+
+================================================================================
+Per-Run Results
+================================================================================
+Algo       Seed    Eps  EarlyStop    FinalReward  Duration(s) Reason
+--------------------------------------------------------------------
+cop_maddpg     42   3387       True         792.30      10190.3 convergence: no improvement (1.0%) in last 1500 episodes
+cop_maddpg    123   3709       True         926.53      10774.0 convergence: no improvement (1.0%) in last 1500 episodes
+
+================================================================================
+Aggregated Results (mean +- std over seeds)
+================================================================================
+
+--- CoP-MADDPG ---
+  Runs: 2, Early stopped: 2
+  Min episodes (aligned): 3387
+  Final reward (last 50): 892.96 +- 142.36 (95% CI: +-197.29)
+  Collision events/ep: 0.18 +- 0.04
+  Data received/ep: 868.60 +- 189.34
+  Data sent to RBS/ep: 564.83 +- 245.76
+  Energy consumed/ep: 27.28 +- 7.11
+  Duration (s): 10482.2 +- 412.7
+  Convergence (eps to 90% peak): 784 +- 893
+  Early reward (first 500 eps): 761.30 +- 370.32
+
+================================================================================
+Cross-Algorithm Comparison
+================================================================================

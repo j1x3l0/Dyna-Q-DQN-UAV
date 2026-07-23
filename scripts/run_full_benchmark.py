@@ -19,6 +19,7 @@ import math
 import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -45,10 +46,17 @@ from training_utils import (
 )
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths — use /mnt/UAV on server, local relative paths otherwise
 # ---------------------------------------------------------------------------
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
-CKPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'checkpoints')
+_STORAGE_BASE = os.environ.get('UAV_STORAGE', None)
+if _STORAGE_BASE is None and os.path.isdir('/mnt/UAV'):
+    _STORAGE_BASE = '/mnt/UAV'
+if _STORAGE_BASE:
+    RESULTS_DIR = os.path.join(_STORAGE_BASE, 'results')
+    CKPT_DIR = os.path.join(_STORAGE_BASE, 'checkpoints')
+else:
+    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+    CKPT_DIR = os.path.join(os.path.dirname(__file__), '..', 'checkpoints')
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(CKPT_DIR, exist_ok=True)
 
@@ -210,6 +218,19 @@ def is_hierarchical(algo: str) -> bool:
 
 def needs_epsilon_decay(algo: str) -> bool:
     return algo in ('nodyna', 'dyna')
+
+
+# ---------------------------------------------------------------------------
+# Parallel worker
+# ---------------------------------------------------------------------------
+_WORKER_COUNTER = 0
+
+
+def _run_single_worker(gpu_id: int, algo: str, seed: int,
+                       config_override: dict, case: int) -> RunResult:
+    """Wrapper for ProcessPoolExecutor: pin to a specific GPU."""
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+    return run_single_experiment(algo, seed, config_override, case)
 
 
 # ---------------------------------------------------------------------------
@@ -713,26 +734,45 @@ def main():
     print()
 
     total_runs = len(algos) * len(seeds) * len(dyna_k_values)
-    run_results = []
+    run_results = [None] * total_runs
 
-    run_idx = 0
+    # Build task queue
+    tasks = []
     for k in dyna_k_values:
         co = {}
         k_tag = ''
         if k is not None:
             co['dyna_k'] = k
-            k_tag = f'k{k}'
+            k_tag = f' k={k}'
         for algo in algos:
             for seed in seeds:
-                run_idx += 1
-                print(f"\n[Run {run_idx}/{total_runs}] {ALGO_CONFIGS[algo]['name']} seed={seed} {k_tag}")
-                print(f"  Max episodes: {ALGO_CONFIGS[algo]['max_episodes']}")
-                result = run_single_experiment(algo, seed, co, case=args.case)
-                run_results.append(result)
-                print(f"  Completed: {result.episodes_completed} eps, "
-                      f"early_stop={result.stopped_early}, duration={result.duration:.1f}s")
+                tasks.append((algo, seed, co, args.case, k_tag))
+
+    num_gpus = int(os.environ.get('N_GPU', '2'))
+    num_workers = min(num_gpus, total_runs)
+
+    print(f"Running {total_runs} tasks on {num_workers} GPU(s) in parallel\n")
+
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = {}
+        for idx, (algo, seed, co, case, k_tag) in enumerate(tasks):
+            gpu_id = idx % num_gpus
+            fut = executor.submit(_run_single_worker, gpu_id, algo, seed, co, case)
+            futures[fut] = (idx, f"[{idx+1}/{total_runs}] {ALGO_CONFIGS[algo]['name']} seed={seed}{k_tag}")
+
+        for fut in as_completed(futures):
+            idx, label = futures[fut]
+            try:
+                result = fut.result()
+                run_results[idx] = result
                 final = float(np.mean(result.rewards[-50:])) if len(result.rewards) >= 50 else float(np.mean(result.rewards))
-                print(f"  Final reward (last 50): {final:.2f}")
+                print(f"{label}: done in {result.duration:.0f}s, {result.episodes_completed} eps, "
+                      f"final_r={final:.2f}, stop={result.stopped_early}")
+            except Exception as e:
+                print(f"{label}: FAILED — {e}")
+
+    # Filter out failed runs
+    run_results = [r for r in run_results if r is not None]
 
     # Sanity check: verify data collection is functioning
     print(f"\n{'='*60}")

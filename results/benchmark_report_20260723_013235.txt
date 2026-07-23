@@ -1,0 +1,41 @@
+================================================================================
+UAV DRL Full Benchmark Report
+================================================================================
+Generated: 2026-07-23 01:32:35
+Case: 1
+
+Algorithm configurations:
+  iDDPG: max_eps=8000, patience=1500, degradation=False
+  MADDPG: max_eps=8000, patience=1500, degradation=False
+  Hierarchical (NoDyna): max_eps=8000, patience=1500, degradation=False
+  Hierarchical (Dyna-Q): max_eps=8000, patience=1500, degradation=False
+  CoP-MADDPG: max_eps=8000, patience=1500, degradation=False
+  MATD3: max_eps=8000, patience=1500, degradation=False
+
+================================================================================
+Per-Run Results
+================================================================================
+Algo       Seed    Eps  EarlyStop    FinalReward  Duration(s) Reason
+--------------------------------------------------------------------
+nodyna       42   2997       True         166.96      14141.3 convergence: no improvement (1.0%) in last 1500 episodes
+nodyna      123   5408       True          77.63      20199.3 convergence: no improvement (1.0%) in last 1500 episodes
+
+================================================================================
+Aggregated Results (mean +- std over seeds)
+================================================================================
+
+--- Hierarchical (NoDyna) ---
+  Runs: 2, Early stopped: 2
+  Min episodes (aligned): 2997
+  Final reward (last 50): 105.27 +- 87.24 (95% CI: +-120.91)
+  Collision events/ep: 0.18 +- 0.04
+  Data received/ep: 121.04 +- 32.51
+  Data sent to RBS/ep: 103.34 +- 17.23
+  Energy consumed/ep: 27.74 +- 5.42
+  Duration (s): 17170.3 +- 4283.7
+  Convergence (eps to 90% peak): 1024 +- 1305
+  Early reward (first 500 eps): 134.68 +- 44.67
+
+================================================================================
+Cross-Algorithm Comparison
+================================================================================

@@ -9,8 +9,9 @@ from hierarchical_agent import HierarchicalAgent
 def test_dyna_q():
     config = Config()
     env = Environment(config)
-    
-    state_dim = 30
+
+    # M4: 状态维度跟随Config推导(=46，含per-RB信道幅度)
+    state_dim = getattr(config, 'state_dim', 30)
     action_dim = 4 + 2 * config.M + 1
     
     agent = HierarchicalAgent(state_dim, action_dim, config.N, config)

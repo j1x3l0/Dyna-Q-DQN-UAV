@@ -60,16 +60,30 @@ class Config:
         self.gamma_forward = 0.95
         self.eta = 50.0
         self.eta1 = 0.1
-        self.reward_scale = 1.0
-        self.P_0 = 5.0
+        self.reward_scale = 50.0   # scaled to match P_0=100W, keeping EE ratio ~3-5
+        self.P_0 = 100.0        # small research UAV hovering power (W), Zeng 2019
         self.denom_epsilon = 1e-6
-        self.omega_0 = 1e-1
-        self.boundary = 50.0
+        self.omega_0 = 1e-3
+        self.boundary = 500.0          # 1km x 1km deployment area
+        self.coverage_radius = 150.0   # UAV-GU communication range (m)
         self.d_soft = 10.0
         self.eta_soft = 5.0
         self.init_min_separation = 15.0
         self.dyna_k = 1
         self.reward_mode = 'ee_ratio'  # 'ee_ratio' or 'additive'
+
+        # M4: state dimension derived from per-RB channel info
+        # pos(3) + buffer(1) + energy(1) + d_i0(1) + g_i per RB(F) + M*(energy(1)+buffer(1)+channel per RB(F))
+        self.state_dim = 6 + self.F + self.M * (2 + self.F)
+
+        # M7: target network update mode ('soft' or 'hard'); paper uses hard replace every 100 iters
+        # 默认soft以保持各算法基准一致；复现论文设为'hard'即可启用周期硬替换
+        self.target_update_mode = 'soft'
+        self.hard_update_every = 100
+
+        # M8: lower-layer exploration mode ('fixed' or 'decay'); paper uses fixed eps=0.05
+        self.epsilon_mode = 'fixed'
+        self.epsilon_fixed = 0.05
 
         seed_sequence = SeedSequence(seed)
         env_seq, action_seq, replay_seq, model_seq, dyna_seq, torch_seq = seed_sequence.spawn(6)
@@ -87,6 +101,7 @@ class Config:
         logger.info(f"UAV params: v_max={self.v_max}, d_min={self.d_min}")
         logger.info(f"Reward params: gamma_forward={self.gamma_forward}, eta={self.eta}, eta1={self.eta1}, reward_scale={self.reward_scale}, P_0={self.P_0}, denom_epsilon={self.denom_epsilon}")
         logger.info(f"Collision params: d_min={self.d_min}, d_soft={self.d_soft}, eta={self.eta}, eta_soft={self.eta_soft}, init_min_sep={self.init_min_separation}, boundary={self.boundary}")
+        logger.info(f"Spatial params: boundary={self.boundary}m, coverage_radius={self.coverage_radius}m")
         logger.info(f"Time slots: tau_f={self.tau_f}, tau_s={self.tau_s}, tau_d={self.tau_d}")
 
 class ChannelModel:
@@ -103,9 +118,9 @@ class ChannelModel:
     def rician_fading(self, distance):
         K = self.config.K
         los_component = self.rng.standard_normal((1, self.config.F)) + 1j * self.rng.standard_normal((1, self.config.F))
-        los_component = los_component / np.linalg.norm(los_component)
+        los_component = los_component / np.linalg.norm(los_component)  # LOS: deterministic unit-norm
         nlos_component = self.rng.standard_normal((1, self.config.F)) + 1j * self.rng.standard_normal((1, self.config.F))
-        nlos_component = nlos_component / np.linalg.norm(nlos_component)
+        # M6: NLOS分量保持CN(0,1)不再归一化，使||h||真实服从Rician分布
         psi = self.large_scale_fading(distance)
         h = np.sqrt(psi) * (np.sqrt(K / (1 + K)) * los_component + np.sqrt(1 / (1 + K)) * nlos_component)
         return h
@@ -145,7 +160,7 @@ class UAV:
         self.config = config
         self.idx = idx
         self.rng = rng
-        self.pos = np.array([self.rng.uniform(-config.boundary, config.boundary), 
+        self.pos = np.array([self.rng.uniform(-config.boundary, config.boundary),
                             self.rng.uniform(-config.boundary, config.boundary),
                             self.rng.uniform(50, 100)])
         self.buffer = 0.0
@@ -158,7 +173,15 @@ class UAV:
         old_pos = self.pos.copy()
         speed = min(speed, self.config.v_max)
         self.velocity = direction * speed
-        self.pos = self.pos + self.velocity * self.config.tau_f
+        new_pos = old_pos + self.velocity * self.config.tau_f
+        # Geofence: clamp to operational area
+        b = self.config.boundary
+        new_pos[0] = np.clip(new_pos[0], -b, b)
+        new_pos[1] = np.clip(new_pos[1], -b, b)
+        new_pos[2] = np.clip(new_pos[2], 10.0, 150.0)
+        if not np.allclose(old_pos + self.velocity * self.config.tau_f, new_pos):
+            logger.debug(f"UAV {self.idx} geofence clamped to: {new_pos}")
+        self.pos = new_pos
         logger.debug(f"UAV {self.idx} move: direction={direction}, speed={speed:.2f}, pos from {old_pos} to {self.pos}")
     
     def update_buffer(self, data_received, data_sent):
@@ -245,7 +268,7 @@ class Environment:
         for gu in self.gus:
             gu_pos_3d = np.array([gu.pos[0], gu.pos[1], 0])
             dist = np.linalg.norm(uav.pos - gu_pos_3d)
-            if dist < 80:
+            if dist < self.config.coverage_radius:
                 coverage.append(gu.idx)
         logger.debug(f"UAV {uav.idx} coverage: {coverage}")
         return coverage
@@ -262,52 +285,53 @@ class Environment:
                 
                 tau_z = self.config.tau_s / max(len(coverage), 1)
                 gu.data_rate_a = tau_z * np.log2(1 + self.config.p_m * h_norm ** 2 / self.config.noise_power)
-                gu.data_rate_b = tau_z * np.log2(1 + self.config.p_A * (self.config.Gamma_o ** 2) * (h_norm ** 4) / self.config.noise_power)
+                gu.data_rate_b = tau_z * np.log2(1 + self.config.p_A * (self.config.Gamma_o ** 2) * (h_norm ** 4) / (2 * self.config.noise_power))
                 logger.debug(f"GU {gu_idx} rates: RF={gu.data_rate_a:.4f}, backscatter={gu.data_rate_b:.4f}")
     
     def calculate_harvested_energy(self, uav, gu_idx, access_control, mode_selection):
         gu = self.gus[gu_idx]
-        gu_pos_3d = np.array([gu.pos[0], gu.pos[1], 0])
-        h_mi, _ = self.channel_model.get_channel(uav.pos, gu_pos_3d)
         harvested = 0.0
-        
+
         coverage = self.get_coverage(uav)
         tau_z = self.config.tau_s / max(len(coverage), 1)
-        
+
         for other_gu_idx in coverage:
             if other_gu_idx != gu_idx and access_control[other_gu_idx] >= 0.5 and mode_selection[other_gu_idx] < 0.5:
-                w_mi = h_mi / np.linalg.norm(h_mi)
-                h_flat = h_mi.flatten()
-                w_flat = w_mi.flatten()
+                # Use backscatter GU n's own channel h_{n,i}, not receiver GU m's h_{m,i}
+                other_gu = self.gus[other_gu_idx]
+                other_gu_pos_3d = np.array([other_gu.pos[0], other_gu.pos[1], 0])
+                h_ni, _ = self.channel_model.get_channel(uav.pos, other_gu_pos_3d)
+                # MRT beamforming: w_{n,i} = h_{n,i} / ||h_{n,i}||
+                w_ni = h_ni / np.linalg.norm(h_ni)
+                h_flat = h_ni.flatten()
+                w_flat = w_ni.flatten()
                 energy = self.config.mu * self.config.p_A * tau_z * np.abs(np.dot(h_flat.conj(), w_flat)) ** 2
                 harvested += energy
                 logger.debug(f"GU {gu_idx} harvesting from GU {other_gu_idx}: {energy:.6f}")
-        
+
         logger.debug(f"GU {gu_idx} total harvested energy: {harvested:.6f}")
         return harvested
     
     def get_uav_state(self, uav):
         coverage = self.get_coverage(uav)
-        gu_energies = []
-        gu_buffers = []
-        channels = []
-        
+        # M4: 保留每RB信道幅度(实数)，而非压缩为单一范数，以支持频域选择性调度
+        state_list = [float(uav.pos[0]), float(uav.pos[1]), float(uav.pos[2]),
+                      float(uav.buffer), float(uav.energy)]
+
+        g_i, d_i0 = self.channel_model.get_channel(uav.pos, self.rbs.pos)
+        state_list.append(float(d_i0))
+        state_list.extend(np.abs(g_i).flatten().tolist())
+
         for gu_idx in coverage:
             gu = self.gus[gu_idx]
-            gu_energies.append(gu.energy)
-            gu_buffers.append(gu.buffer)
+            state_list.append(float(gu.energy))
+            state_list.append(float(gu.buffer))
             gu_pos_3d = np.array([gu.pos[0], gu.pos[1], 0])
             h_mi, _ = self.channel_model.get_channel(uav.pos, gu_pos_3d)
-            channels.append(np.linalg.norm(h_mi))
-        
-        g_i, d_i0 = self.channel_model.get_channel(uav.pos, self.rbs.pos)
-        
-        state = np.array([uav.pos[0], uav.pos[1], uav.pos[2], 
-                         uav.buffer, uav.energy, 
-                         d_i0, np.linalg.norm(g_i)] + 
-                         gu_energies + gu_buffers + channels)
-        
-        padded_state = np.pad(state, (0, max(0, 30 - len(state))))
+            state_list.extend(np.abs(h_mi).flatten().tolist())
+
+        state = np.array(state_list, dtype=float)
+        padded_state = np.pad(state, (0, max(0, self.config.state_dim - len(state))))
         logger.debug(f"UAV {uav.idx} state shape: {padded_state.shape}")
         return padded_state
     
@@ -336,7 +360,10 @@ class Environment:
                 'upper_reward': 0.0,
             }
         }
-        
+
+        # M5: 每时隙每个GU最多被一个UAV接入，避免多UAV重复计入同一份数据
+        served_gus = set()
+
         for i, uav in enumerate(self.uavs):
             action = actions[i]
             direction = action[:3]
@@ -368,7 +395,7 @@ class Environment:
                 logger.info(f"UAV {i} collision penalty: -{self.config.eta * collision_count}")
             
             coverage = self.get_coverage(uav)
-            uav.scheduled = bool(action[4])
+            uav.scheduled = action[4] >= 0.5  # M2: 阈值判定替代bool()，避免action[4]近0时误判
             access_control = action[5:5+self.config.M]
             mode_selection = action[5+self.config.M:5+2*self.config.M]
             
@@ -383,7 +410,11 @@ class Environment:
             
             for gu_idx in coverage:
                 gu = self.gus[gu_idx]
+                if gu_idx in served_gus:
+                    logger.debug(f"GU {gu_idx} already served by another UAV this slot, skip")
+                    continue
                 if access_control[gu_idx] >= 0.5:
+                    served_gus.add(gu_idx)  # M5: 锁定该GU，后续UAV不再重复接入
                     mode = 1 if mode_selection[gu_idx] >= 0.5 else 0
                     gu.access = True
                     gu.mode = mode
@@ -482,7 +513,7 @@ class Environment:
             step_info['totals']['upper_reward'] += upper_reward
         
         self.time_slot += 1
-        done = self.time_slot >= 100
+        done = self.time_slot >= 200  # 200 steps × 7.5m = 1500m > 1414m diagonal at boundary=500
         logger.info(f"Step completed: time_slot={self.time_slot}, done={done}, rewards={rewards}")
         self.last_step_info = step_info
         

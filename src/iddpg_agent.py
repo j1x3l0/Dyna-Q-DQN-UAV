@@ -75,13 +75,14 @@ class iDDPGAgent:
                      f"action_dim={action_dim}, device={self.device}")
 
         logger.info("Creating actor networks (per-agent)...")
-        self.actors = [Actor(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
+        # M9: 前4维tanh，剩余维sigmoid
+        self.actors = [Actor(state_dim, 4, action_dim - 4).to(self.device) for _ in range(num_agents)]
 
         logger.info("Creating critic networks (independent, per-agent)...")
         self.critics = [Critic(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
 
         logger.info("Creating target networks...")
-        self.target_actors = [Actor(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
+        self.target_actors = [Actor(state_dim, 4, action_dim - 4).to(self.device) for _ in range(num_agents)]
         self.target_critics = [Critic(state_dim, action_dim).to(self.device) for _ in range(num_agents)]
 
         logger.info("Copying weights to target networks...")
@@ -90,8 +91,8 @@ class iDDPGAgent:
             self.target_critics[i].load_state_dict(self.critics[i].state_dict())
 
         logger.info("Creating optimizers...")
-        self.actor_optimizers = [optim.Adam(self.actors[i].parameters(), lr=1e-3) for i in range(num_agents)]
-        self.critic_optimizers = [optim.Adam(self.critics[i].parameters(), lr=1e-4) for i in range(num_agents)]
+        self.actor_optimizers = [optim.Adam(self.actors[i].parameters(), lr=1e-4) for i in range(num_agents)]
+        self.critic_optimizers = [optim.Adam(self.critics[i].parameters(), lr=1e-3) for i in range(num_agents)]
 
         logger.info("Creating learning rate schedulers...")
         self.actor_schedulers = [optim.lr_scheduler.StepLR(self.actor_optimizers[i], step_size=500, gamma=0.9)
@@ -105,6 +106,10 @@ class iDDPGAgent:
         self.tau = 0.01
         self.batch_size = 32
         self.clip_norm = 1.0
+        # M7: 目标网络更新模式开关
+        self.target_update_mode = getattr(config, 'target_update_mode', 'hard')
+        self.hard_update_every = getattr(config, 'hard_update_every', 100)
+        self._hard_counter = 0
 
         logger.info(f"Memory capacity: {self.memory.maxlen}, gamma={self.gamma}, tau={self.tau}, "
                      f"batch_size={self.batch_size}, clip_norm={self.clip_norm}")
@@ -214,8 +219,18 @@ class iDDPGAgent:
         for i in range(self.num_agents):
             self.actor_schedulers[i].step()
             self.critic_schedulers[i].step()
+        if self.target_update_mode == 'hard':
+            self._hard_counter += 1
+            if self._hard_counter >= self.hard_update_every:
+                self._hard_counter = 0
+                for i in range(self.num_agents):
+                    self.target_actors[i].load_state_dict(self.actors[i].state_dict())
+                    self.target_critics[i].load_state_dict(self.critics[i].state_dict())
+                logger.debug(f"iDDPG hard target sync at episode boundary (every {self.hard_update_every})")
 
     def soft_update(self, source, target):
+        if getattr(self, 'target_update_mode', 'soft') == 'hard':
+            return
         for source_param, target_param in zip(source.parameters(), target.parameters()):
             target_param.data.copy_(self.tau * source_param.data + (1 - self.tau) * target_param.data)
 

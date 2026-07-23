@@ -1,0 +1,49 @@
+============================================================
+UAV-Assisted Wireless Sensor Networks
+Deep Reinforcement Learning Experiment Report
+============================================================
+
+Experiment Time: 2026-07-11 15:26:19
+Training Episodes: 5000
+Case: 1
+
+============================================================
+RESULTS SUMMARY
+============================================================
+
+--- MADDPG ---
+Final Average Reward (last 50): -2996.17
+Best Reward: -1.20
+Worst Reward: -11402.27
+Standard Deviation: 2797.03
+
+--- Hierarchical (Dyna-Q) ---
+Final Average Reward (last 50): -1107.98
+Best Reward: -0.28
+Worst Reward: -9201.83
+Standard Deviation: 1478.56
+
+============================================================
+COMPARISON
+============================================================
+Final Reward Difference: 1888.19
+Improvement: 63.02%
+
+============================================================
+CONFIGURATION
+============================================================
+
+System Parameters:
+  - Number of UAVs (N): 3
+  - Number of Ground Users (M): 6
+  - Number of Resource Blocks (F): 4
+  - Simulation Area: 100x100 m
+  - UAV Altitude Range: 50-100 m
+
+Training Parameters:
+  - Learning Rate: 1e-4
+  - Gamma: 0.95
+  - Tau: 0.01
+  - Batch Size: 32
+  - Memory Size: 2000
+  - Dyna-K: 5
