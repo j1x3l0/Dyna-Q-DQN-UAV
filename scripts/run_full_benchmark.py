@@ -749,9 +749,11 @@ def main():
                 tasks.append((algo, seed, co, args.case, k_tag))
 
     num_gpus = int(os.environ.get('N_GPU', '2'))
-    num_workers = min(num_gpus, total_runs)
+    # N_WORKERS decouples parallelism from GPU count: multiple small-model
+    # processes can share one GPU (round-robin pinned via idx % num_gpus).
+    num_workers = min(int(os.environ.get('N_WORKERS', num_gpus)), total_runs)
 
-    print(f"Running {total_runs} tasks on {num_workers} GPU(s) in parallel\n")
+    print(f"Running {total_runs} tasks with {num_workers} parallel workers on {num_gpus} GPU(s)\n")
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = {}
