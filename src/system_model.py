@@ -70,7 +70,11 @@ class Config:
         self.eta_soft = 5.0
         self.init_min_separation = 15.0
         self.dyna_k = 1
-        self.reward_mode = 'ee_ratio'  # 'ee_ratio' or 'additive'
+        self.dyna_warmup = 32
+        # ee_ratio: received data + weighted RBS forwarding (historical default)
+        # paper_xi: RBS-delivered data / total UAV energy (paper objective)
+        # additive: throughput - communication energy (legacy ablation)
+        self.reward_mode = 'ee_ratio'
 
         # M4: state dimension derived from per-RB channel info
         # pos(3) + buffer(1) + energy(1) + d_i0(1) + g_i per RB(F) + M*(energy(1)+buffer(1)+channel per RB(F))
@@ -469,22 +473,29 @@ class Environment:
 
             ee_numerator = data_received + self.config.gamma_forward * data_sent_to_rbs
             ee_ratio = ee_numerator / total_energy
+            paper_xi = data_sent_to_rbs / total_energy
 
             energy_consumed = sensing_energy_consumed + forward_energy_consumed
 
             if self.config.reward_mode == 'additive':
                 # Additive reward: data throughput - energy cost - collision penalty
                 upper_reward = ee_numerator - self.config.eta * energy_consumed - collision_penalty
-            else:
+            elif self.config.reward_mode == 'paper_xi':
+                # Paper objective: data delivered to RBS per total UAV energy.
+                upper_reward = paper_xi * self.config.reward_scale - collision_penalty
+            elif self.config.reward_mode == 'ee_ratio':
                 # EE ratio reward: energy efficiency (bits/Joule) - collision penalty
                 upper_reward = ee_ratio * self.config.reward_scale - collision_penalty
+            else:
+                raise ValueError(f"Unsupported reward_mode: {self.config.reward_mode}")
 
             lower_reward = data_received - self.config.eta1 * harvested_energy_total
             rewards[i] = upper_reward
             uav.energy -= forward_energy_consumed
             logger.info(
-                f"UAV {i} rewards: upper(EE ratio)={upper_reward:.4f}, lower(sensing)={lower_reward:.4f}, "
-                f"ee_ratio={ee_ratio:.4f} bits/J, flight_e={flight_energy:.4f}, "
+                f"UAV {i} rewards: mode={self.config.reward_mode}, upper={upper_reward:.4f}, "
+                f"lower(sensing)={lower_reward:.4f}, ee_ratio={ee_ratio:.4f}, paper_xi={paper_xi:.4f}, "
+                f"flight_e={flight_energy:.4f}, "
                 f"sensing_e={sensing_energy_consumed:.4f}, forward_e={forward_energy_consumed:.4f}, "
                 f"harvested_e={harvested_energy_total:.6f}, total_e={total_energy:.4f}"
             )
@@ -499,6 +510,7 @@ class Environment:
                 'flight_energy': flight_energy,
                 'energy_consumed': energy_consumed,
                 'harvested_energy': harvested_energy_total,
+                'paper_xi': paper_xi,
                 'lower_reward': lower_reward,
                 'upper_reward': upper_reward,
             })

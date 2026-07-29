@@ -107,7 +107,7 @@ class HierarchicalAgent:
         logger.info("=" * 60)
         logger.info("Initializing HierarchicalAgent...")
         logger.info("=" * 60)
-        
+
         self.config = config
         self.num_agents = num_agents
         self.state_dim = state_dim
@@ -121,7 +121,8 @@ class HierarchicalAgent:
         self.model_rng = config.rngs['model']
         self.dyna_rng = config.rngs['dyna']
         self.dyna_k = config.dyna_k if dyna_k is None else dyna_k
-        
+        self.dyna_warmup = max(0, int(getattr(config, 'dyna_warmup', 32)))
+
         logger.info(f"Hierarchical params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
 
         logger.info("Creating upper-layer actor networks...")
@@ -133,22 +134,22 @@ class HierarchicalAgent:
 
         logger.info("Creating upper-layer target actor networks...")
         self.target_upper_actors = [UpperActor(state_dim, 4, 1).to(self.device) for _ in range(num_agents)]
-        
+
         logger.info("Creating upper-layer target critic networks...")
         self.target_upper_critics = [UpperCritic(state_dim * num_agents, 5 * num_agents).to(self.device) for _ in range(num_agents)]
-        
+
         logger.info("Copying upper-layer weights to target networks...")
         for i in range(num_agents):
             self.target_upper_actors[i].load_state_dict(self.upper_actors[i].state_dict())
             self.target_upper_critics[i].load_state_dict(self.upper_critics[i].state_dict())
-        
+
         logger.info("Creating upper-layer optimizers...")
         self.upper_actor_optimizers = [optim.Adam(self.upper_actors[i].parameters(), lr=1e-4) for i in range(num_agents)]
         self.upper_critic_optimizers = [optim.Adam(self.upper_critics[i].parameters(), lr=1e-3) for i in range(num_agents)]
-        
+
         logger.info("Creating lower-layer DQN networks...")
         self.lower_dqns = [LowerDQN(state_dim, 3 * config.M).to(self.device) for _ in range(num_agents)]
-        
+
         logger.info("Creating lower-layer target DQN networks...")
         self.target_lower_dqns = [LowerDQN(state_dim, 3 * config.M).to(self.device) for _ in range(num_agents)]
         
@@ -203,7 +204,7 @@ class HierarchicalAgent:
         logger.info(f"Lower memory capacity: {self.lower_memory[0].maxlen} per agent")
         logger.info(f"gamma={self.gamma}, tau={self.tau}, batch_size={self.batch_size}, epsilon={self.epsilon}, epsilon_mode={self.epsilon_mode}")
         logger.info(f"epsilon_min={self.epsilon_min}, epsilon_decay={self.epsilon_decay}, clip_norm={self.clip_norm}")
-        logger.info(f"dyna_k={self.dyna_k}")
+        logger.info(f"dyna_k={self.dyna_k}, dyna_warmup={self.dyna_warmup}")
         logger.info("=" * 60)
         logger.info("HierarchicalAgent initialization complete!")
         logger.info("=" * 60)
@@ -440,10 +441,10 @@ class HierarchicalAgent:
     
     def update_model(self, agent_idx):
         if self.dyna_k <= 0 or not self.models:
-            return
+            return None
         if len(self.lower_memory[agent_idx]) < self.batch_size:
             logger.debug(f"update_model({agent_idx}) skipped: memory size {len(self.lower_memory[agent_idx])} < batch size {self.batch_size}")
-            return
+            return None
         
         logger.debug(f"update_model({agent_idx}) called: memory size={len(self.lower_memory[agent_idx])}, batch_size={self.batch_size}")
         
@@ -478,25 +479,34 @@ class HierarchicalAgent:
         total_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.models[agent_idx].parameters(), self.clip_norm)
         self.model_optimizers[agent_idx].step()
+        return {
+            'reward_loss': float(reward_loss.item()),
+            'state_loss': float(state_loss.item()),
+            'total_loss': float(total_loss.item()),
+        }
     
     def dyna_plan(self, agent_idx, k=None):
         if self.dyna_k <= 0 or not self.models:
             return
         if k is None:
             k = self.dyna_k
-        
+
         if k <= 0:
             return
-        if len(self.lower_memory[agent_idx]) < k:
-            logger.debug(f"dyna_plan({agent_idx}) skipped: memory size {len(self.lower_memory[agent_idx])} < k={k}")
+        required_samples = max(k, self.dyna_warmup)
+        if len(self.lower_memory[agent_idx]) < required_samples:
+            logger.debug(
+                f"dyna_plan({agent_idx}) skipped: memory size {len(self.lower_memory[agent_idx])} "
+                f"< required={required_samples} (k={k}, warmup={self.dyna_warmup})"
+            )
             return
-        
+
         logger.debug(f"dyna_plan({agent_idx}) called: k={k}, memory size={len(self.lower_memory[agent_idx])}")
-        
+
         batch = self.dyna_rng.choice(len(self.lower_memory[agent_idx]), k, replace=False)
-        
+
         self.lower_optimizers[agent_idx].zero_grad()
-        
+
         total_loss = 0.0
         M = self.config.M
         for idx in batch:
@@ -538,9 +548,9 @@ class HierarchicalAgent:
 
             del state_tensor, next_state_pred_tensor, reward_pred_tensor, done_tensor
             del q_values, next_q_all, sample_loss
-        
+
         self.lower_optimizers[agent_idx].step()
-        
+
         logger.debug(f"dyna_plan({agent_idx}) completed: avg_loss={total_loss/k:.6f}, k={k}")
 
     def step_episode_schedulers(self):

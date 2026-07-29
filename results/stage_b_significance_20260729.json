@@ -1,0 +1,237 @@
+{
+  "source": "/tmp/stage_b_20260728.json",
+  "seeds": [
+    42,
+    123,
+    2026,
+    3407,
+    8888
+  ],
+  "alpha": 0.05,
+  "method": {
+    "test": "exact paired sign-flip permutation on mean difference",
+    "permutations": 32,
+    "ci": "exact paired bootstrap percentile over all n^n resamples",
+    "multiplicity": "Holm correction over three directional primary tests"
+  },
+  "per_seed_metrics": {
+    "maddpg": {
+      "42": {
+        "final_reward": 531.5318785693948,
+        "early_reward_500": 417.1114670874702,
+        "convergence_episode": 550.0,
+        "final_xi_50": 0.017735053572259706,
+        "duration_hours": 7.1324174690908855
+      },
+      "123": {
+        "final_reward": 330.1097799955881,
+        "early_reward_500": 395.9907101147358,
+        "convergence_episode": 236.0,
+        "final_xi_50": 0.011016260316649372,
+        "duration_hours": 4.8047263532876965
+      },
+      "2026": {
+        "final_reward": 123.75136866876156,
+        "early_reward_500": 79.08892154541022,
+        "convergence_episode": 993.0,
+        "final_xi_50": 0.004130721109177864,
+        "duration_hours": 4.129943899975883
+      },
+      "3407": {
+        "final_reward": 373.51800432263553,
+        "early_reward_500": 227.08795314335865,
+        "convergence_episode": 865.0,
+        "final_xi_50": 0.012465136067904599,
+        "duration_hours": 4.247231369482146
+      },
+      "8888": {
+        "final_reward": 109.68773697103329,
+        "early_reward_500": 110.14144709412363,
+        "convergence_episode": 1640.0,
+        "final_xi_50": 0.003661267709609669,
+        "duration_hours": 5.205443325440089
+      }
+    },
+    "nodyna": {
+      "42": {
+        "final_reward": 447.02029571013236,
+        "early_reward_500": 571.6990076731797,
+        "convergence_episode": 169.0,
+        "final_xi_50": 0.014918120005268962,
+        "duration_hours": 12.020123169091013
+      },
+      "123": {
+        "final_reward": 549.4440454045725,
+        "early_reward_500": 632.9021105681406,
+        "convergence_episode": 306.0,
+        "final_xi_50": 0.01832782341674507,
+        "duration_hours": 11.10470008916325
+      },
+      "2026": {
+        "final_reward": 503.6300553020448,
+        "early_reward_500": 526.9870591991822,
+        "convergence_episode": 525.0,
+        "final_xi_50": 0.016803710412544772,
+        "duration_hours": 8.881481768555112
+      },
+      "3407": {
+        "final_reward": 547.8828752621652,
+        "early_reward_500": 465.7490348156174,
+        "convergence_episode": 919.0,
+        "final_xi_50": 0.018453158126358452,
+        "duration_hours": 15.534709845052825
+      },
+      "8888": {
+        "final_reward": 527.1317546103326,
+        "early_reward_500": 416.6689323472381,
+        "convergence_episode": 704.0,
+        "final_xi_50": 0.017577724433622065,
+        "duration_hours": 10.11992893172635
+      }
+    },
+    "dyna": {
+      "42": {
+        "final_reward": 603.9463015584981,
+        "early_reward_500": 649.3051640655666,
+        "convergence_episode": 339.0,
+        "final_xi_50": 0.0201337410275364,
+        "duration_hours": 20.53212837027179
+      },
+      "123": {
+        "final_reward": 607.2590503007544,
+        "early_reward_500": 664.1226476773145,
+        "convergence_episode": 241.0,
+        "final_xi_50": 0.02024402455596731,
+        "duration_hours": 14.242735873129632
+      },
+      "2026": {
+        "final_reward": 439.54650128001214,
+        "early_reward_500": 502.86641321643197,
+        "convergence_episode": 265.0,
+        "final_xi_50": 0.014662720611353373,
+        "duration_hours": 18.06306143436167
+      },
+      "3407": {
+        "final_reward": 544.1631564483544,
+        "early_reward_500": 545.4216784756408,
+        "convergence_episode": 190.0,
+        "final_xi_50": 0.018140894486630754,
+        "duration_hours": 17.173775408599113
+      },
+      "8888": {
+        "final_reward": 368.8363868219458,
+        "early_reward_500": 250.80403456027025,
+        "convergence_episode": 617.0,
+        "final_xi_50": 0.012309658970002121,
+        "duration_hours": 17.449115703437062
+      }
+    }
+  },
+  "tests": {
+    "nodyna_vs_maddpg_final_reward": {
+      "differences": [
+        -84.51158285926249,
+        219.33426540898444,
+        379.8786866332832,
+        174.36487093952962,
+        417.44401763929926
+      ],
+      "mean_difference": 221.3020515523668,
+      "bootstrap_ci95": [
+        60.141761799005074,
+        362.7959347908299
+      ],
+      "cohens_dz": 1.1087745733798966,
+      "p_exact_two_sided": 0.125,
+      "p_exact_directional": 0.0625,
+      "p_holm_directional": 0.1875
+    },
+    "dyna_vs_nodyna_final_reward": {
+      "differences": [
+        156.92600584836578,
+        57.815004896181904,
+        -64.08355402203267,
+        -3.7197188138108004,
+        -158.29536778838678
+      ],
+      "mean_difference": -2.271525975936515,
+      "bootstrap_ci95": [
+        -96.23093049820223,
+        92.90189368384931
+      ],
+      "cohens_dz": -0.019008667333533673,
+      "p_exact_two_sided": 0.8125,
+      "p_exact_directional": 0.625
+    },
+    "dyna_vs_nodyna_early_reward_500": {
+      "differences": [
+        77.60615639238688,
+        31.220537109173847,
+        -24.12064598275026,
+        79.67264366002337,
+        -165.86489778696787
+      ],
+      "mean_difference": -0.29724132162680805,
+      "bootstrap_ci95": [
+        -88.4085391367261,
+        69.15562744279887
+      ],
+      "cohens_dz": -0.0029203935516399783,
+      "p_exact_two_sided": 1.0,
+      "p_exact_directional": 0.53125,
+      "p_holm_directional": 0.53125
+    },
+    "nodyna_minus_dyna_convergence_episode": {
+      "differences": [
+        -170.0,
+        65.0,
+        260.0,
+        729.0,
+        87.0
+      ],
+      "mean_difference": 194.2,
+      "bootstrap_ci95": [
+        -32.6,
+        472.2
+      ],
+      "cohens_dz": 0.5782433599000075,
+      "p_exact_two_sided": 0.3125,
+      "p_exact_directional": 0.15625,
+      "p_holm_directional": 0.3125
+    },
+    "dyna_vs_nodyna_final_xi_50": {
+      "differences": [
+        0.005215621022267438,
+        0.0019162011392222407,
+        -0.002140989801191399,
+        -0.000312263639727698,
+        -0.005268065463619943
+      ],
+      "mean_difference": -0.00011789934860987235,
+      "bootstrap_ci95": [
+        -0.003205797010565797,
+        0.003084414880966631
+      ],
+      "cohens_dz": -0.029651678979284137,
+      "p_exact_two_sided": 0.8125,
+      "p_exact_directional": 0.625
+    },
+    "dyna_vs_nodyna_duration_hours": {
+      "differences": [
+        8.512005201180775,
+        3.138035783966382,
+        9.18157966580656,
+        1.6390655635462874,
+        7.329186771710713
+      ],
+      "mean_difference": 5.959974597242144,
+      "bootstrap_ci95": [
+        3.3134475351572035,
+        8.543271301137077
+      ],
+      "cohens_dz": 1.7690772153564847,
+      "p_exact_two_sided": 0.0625,
+      "p_exact_directional": 0.03125
+    }
+  }
+}

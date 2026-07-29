@@ -21,6 +21,7 @@
 | 基准测试 | `scripts/run_full_benchmark.py` | 统一入口运行所有算法 | 参数配置 | .npy + 报告 | 65% | 2026-07 |
 | 结果分析 | `scripts/analyze_*.py` | 收敛/奖励/可视化分析 | .npy 文件 | 图表 + 报告 | 60% | 2026-07 |
 | 奖励分解 | `scripts/reward_decomposition.py` | 按 reward 成分分析 | .npy 文件 | 分解报告 | 40% | 2026-07 |
+| Dyna-Q 消融 | `scripts/run_dyna_ablation.py` | K / 模型 warm-up 参数化对照 | seeds + sweep 参数 | 逐轮指标 + JSON | 70% | 2026-07 |
 
 ## 2. 依赖图
 
@@ -72,7 +73,7 @@ Episode 开始
   │     │     └─► 计算信道增益 (Rician)
   │     │     └─► 计算吞吐量 (Shannon)
   │     │     └─► 更新 GU 能量/缓冲区
-  │     │     └─► 计算 Reward (能效 Ξ)
+  │     │     └─► 计算 Reward（由 reward_mode 选择）
   │     │
   │     ├─► [Dyna-Q 分支] Model.predict(s, a) → (r_pred, s_pred)
   │     │     └─► 对虚拟经验做 K 步 DQN 更新
@@ -88,7 +89,7 @@ Episode 开始
 
 | 模块 | 雾度 | 不清晰的部分 |
 |------|------|-------------|
-| Reward 分解 | 🔴 60% 未知 | 各 reward 成分对策略的实际贡献权重未知 |
+| Reward 分解 | 🟡 35% 未知 | 已定位历史代理目标与论文 Ξ 的偏差；长期训练收益待验证 |
 | CoP-MADDPG 通信 | 🔴 50% 未知 | 通信消息对 critic 的影响路径未分析 |
 | MATD3 双 Critic | 🟡 40% 未知 | Twin Q 对本项目的实际改善幅度待验证 |
 | Dyna-Q 模型误差 | 🟡 35% 未知 | 长期训练中模型预测误差是否累积 |
@@ -108,6 +109,9 @@ Episode 开始
 | 概念 | 定义 | 首次出现 |
 |------|------|---------|
 | **能效 Ξ** | RBS 总吞吐量 / UAV 总能耗的时间平均 | 论文 Eq.9 |
+| **ee_ratio 奖励** | `(GU→UAV 接收量 + γ_forward × UAV→RBS 转发量) / UAV 能耗`；历史默认，保留旧实验兼容性 | `src/system_model.py` |
+| **paper_xi 奖励** | `UAV→RBS 转发量 / UAV 能耗`；与论文 Eq.9 的系统目标直接对齐 | `src/system_model.py` |
+| **additive 奖励** | 数据收益减能耗惩罚的加性代理目标，用于奖励分解消融 | `src/system_model.py` |
 | **CTDE** | Centralized Training Decentralized Execution | MADDPG 论文 |
 | **Dyna-Q** | 环境模型 + 虚拟经验 → 加速 Q-learning | Sutton & Barto |
 | **Backscatter** | GU 反射 UAV 信号通信，不消耗自身能量 | 论文 §2.2 |
@@ -116,6 +120,14 @@ Episode 开始
 | **Resource Block** | 频域资源分配的基本单位 | 论文 §2.1 |
 | **Soft Update** | θ_target = τ·θ + (1-τ)·θ_target | DDPG 论文 |
 
+### 2026-07 阶段 C 诊断
+
+50 轮短测显示，Hier-DynaQ 在历史 `ee_ratio` 奖励下能够收集 GU 数据，但很少向 RBS
+转发：平均转发/接收比约 1.5%，46/50 个 episode 为零转发，终局 UAV 缓冲区持续累积。
+动作索引检查未发现错误。当前假设是历史奖励中的“接收量”项允许上层策略在不完成 RBS
+交付时仍获得较高回报，因此新增 `paper_xi` 模式用于阶段 C 对照；在完成长期验证前，
+`ee_ratio` 仍是默认值。
+
 ---
 
-*最后更新: 2026-07-23 | 由 @knowledge-map-maintainer 维护*
+*最后更新: 2026-07-26 | 由 @knowledge-map-maintainer 维护*
