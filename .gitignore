@@ -91,3 +91,10 @@ runs/
 checkpoints/
 logs/
 __pycache__/
+
+# External knowledge base (not part of the project)
+bettercoding/
+
+# Agent skills (auto-installed, not part of the project)
+.agents/
+.claude/skills/
