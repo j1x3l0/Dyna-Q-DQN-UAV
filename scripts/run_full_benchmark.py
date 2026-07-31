@@ -131,11 +131,13 @@ DEFAULT_CASE = 1
 class RunResult:
     algo: str
     seed: int
+    reward_mode: str
     episodes_completed: int
     stopped_early: bool
     stop_reason: str
     rewards: np.ndarray
     metrics: dict
+    episode_metrics: List[dict]
     duration: float
     checkpoint_episodes: List[int] = field(default_factory=list)
 
@@ -250,14 +252,18 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         RunResult with full metrics
     """
     algo_cfg = ALGO_CONFIGS[algo]
-    logger, _ = setup_training_logger(f'{algo}_seed{seed}')
-
+    config_override = dict(config_override or {})
+    max_episodes_override = config_override.pop('_max_episodes', None)
     # Setup config
     config = Config(seed=seed)
-    if config_override:
-        for key, val in config_override.items():
-            setattr(config, key, val)
+    for key, val in config_override.items():
+        setattr(config, key, val)
     env = Environment(config)
+    variant_tag = (
+        f'_k{config.dyna_k}_w{config.dyna_warmup}' if algo == 'dyna' else ''
+    )
+    run_tag = f'{algo}_{config.reward_mode}{variant_tag}_seed{seed}'
+    logger, _ = setup_training_logger(run_tag)
 
     state_dim, action_dim = get_state_action_dims(config)
     agent = create_agent(algo, state_dim, action_dim, config)
@@ -274,22 +280,29 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
 
     # Metrics accumulators
     rewards_history = []
+    metric_keys = (
+        'collision_events', 'collision_penalty',
+        'data_received', 'data_sent_to_rbs',
+        'energy_consumed', 'flight_energy', 'harvested_energy',
+    )
     totals = {
         'collision_events': 0.0, 'collision_penalty': 0.0,
         'data_received': 0.0, 'data_sent_to_rbs': 0.0,
         'energy_consumed': 0.0, 'flight_energy': 0.0,
         'harvested_energy': 0.0,
     }
+    episode_metrics = []
     checkpoint_episodes = []
     stopped_early = False
-    stop_reason = f'reached max_episodes ({algo_cfg["max_episodes"]})'
     best_checkpoint = None
     best_rolling_avg = -float('inf')
 
-    max_eps = algo_cfg['max_episodes']
+    max_eps = max_episodes_override or algo_cfg['max_episodes']
+    stop_reason = f'reached max_episodes ({max_eps})'
     ckpt_every = algo_cfg['checkpoint_every']
 
-    logger.info(f"Starting {algo_cfg['name']} | seed={seed} | max_episodes={max_eps} | "
+    logger.info(f"Starting {algo_cfg['name']} | seed={seed} | reward_mode={config.reward_mode} | "
+                f"max_episodes={max_eps} | "
                 f"early_stop_patience={algo_cfg['early_stop_patience']}")
 
     start_time = time.time()
@@ -297,6 +310,8 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
     for episode in range(max_eps):
         states = env.reset(case)
         episode_reward = 0.0
+        episode_totals = {key: 0.0 for key in metric_keys}
+        episode_model_losses = []
 
         while True:
             if is_hierarchical(algo):
@@ -317,7 +332,9 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                                           next_states[i], done)
                     agent.update_lower(i)
                     if algo == 'dyna':
-                        agent.update_model(i)
+                        model_stats = agent.update_model(i)
+                        if model_stats is not None:
+                            episode_model_losses.append(model_stats)
                         agent.dyna_plan(i)
             else:
                 # Flat action selection (iDDPG / MADDPG)
@@ -331,13 +348,29 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
             episode_reward += float(np.sum(rewards))
             for key in totals:
                 val = step_info.get('totals', {}).get(key, 0.0)
-                totals[key] += float(val) if val is not None else 0.0
+                value = float(val) if val is not None else 0.0
+                totals[key] += value
+                episode_totals[key] += value
 
             states = next_states
             if done:
                 break
 
         rewards_history.append(episode_reward)
+        episode_totals['reward'] = float(episode_reward)
+        episode_totals['paper_xi_ratio_of_sums'] = float(
+            episode_totals['data_sent_to_rbs']
+            / max(
+                episode_totals['energy_consumed'] + episode_totals['flight_energy'],
+                config.denom_epsilon,
+            )
+        )
+        for loss_key in ('reward_loss', 'state_loss', 'total_loss'):
+            episode_totals[f'model_{loss_key}'] = (
+                float(np.mean([x[loss_key] for x in episode_model_losses]))
+                if episode_model_losses else None
+            )
+        episode_metrics.append(episode_totals)
         agent.step_episode_schedulers()
 
         if needs_epsilon_decay(algo):
@@ -354,7 +387,7 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
 
         # Periodic checkpoint
         if (episode + 1) % ckpt_every == 0:
-            ckpt_path = os.path.join(CKPT_DIR, f'{algo}_seed{seed}_ep{episode+1}.pt')
+            ckpt_path = os.path.join(CKPT_DIR, f'{run_tag}_ep{episode+1}.pt')
             agent.save_checkpoint(ckpt_path, episode + 1)
             checkpoint_episodes.append(episode + 1)
 
@@ -365,7 +398,7 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                 best_rolling_avg = rolling_avg
                 best_checkpoint = True
                 # Save a "best" copy
-                best_path = os.path.join(CKPT_DIR, f'{algo}_seed{seed}_best.pt')
+                best_path = os.path.join(CKPT_DIR, f'{run_tag}_best.pt')
                 agent.save_checkpoint(best_path, episode + 1)
 
         # Periodic logging
@@ -380,7 +413,7 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
 
     # Save final checkpoint
     if not stopped_early or episode not in checkpoint_episodes:
-        final_ckpt = os.path.join(CKPT_DIR, f'{algo}_seed{seed}_final_ep{episode+1}.pt')
+        final_ckpt = os.path.join(CKPT_DIR, f'{run_tag}_final_ep{episode+1}.pt')
         agent.save_checkpoint(final_ckpt, episode + 1)
 
     logger.info(f"{algo_cfg['name']} seed={seed} completed: {episode+1} episodes, "
@@ -389,11 +422,13 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
     return RunResult(
         algo=algo,
         seed=seed,
+        reward_mode=config.reward_mode,
         episodes_completed=episode + 1,
         stopped_early=stopped_early,
         stop_reason=stop_reason,
         rewards=np.array(rewards_history, dtype=float),
         metrics={k: float(v) for k, v in totals.items()},
+        episode_metrics=episode_metrics,
         duration=duration,
         checkpoint_episodes=checkpoint_episodes,
     )
@@ -591,12 +626,13 @@ def write_report(run_results: List[RunResult], summary_rows: list,
         'algo_configs': ALGO_CONFIGS,
         'runs': [
             {
-                'algo': r.algo, 'seed': r.seed,
+                'algo': r.algo, 'seed': r.seed, 'reward_mode': r.reward_mode,
                 'episodes_completed': r.episodes_completed,
                 'stopped_early': r.stopped_early,
                 'stop_reason': r.stop_reason,
                 'duration': r.duration,
                 'metrics': r.metrics,
+                'episode_metrics': r.episode_metrics,
                 'rewards': r.rewards.tolist(),
             }
             for r in run_results
@@ -712,6 +748,12 @@ def parse_args():
                         help='Comma-separated seeds (default: 42,123,2026)')
     parser.add_argument('--case', type=int, default=DEFAULT_CASE,
                         help='Environment case (1 or 2)')
+    parser.add_argument('--episodes', type=int, default=None,
+                        help='Override maximum episodes for every selected algorithm')
+    parser.add_argument('--reward-mode', choices=('ee_ratio', 'paper_xi', 'additive'),
+                        default='ee_ratio', help='Environment upper reward objective')
+    parser.add_argument('--gpu-ids', type=str, default='0,1',
+                        help='Comma-separated physical GPU IDs used by workers')
     parser.add_argument('--dyna-k', type=str, default=None,
                         help='Comma-separated Dyna-K values for sweep, e.g. "1,5,10,20" (default: from Config)')
     return parser.parse_args()
@@ -722,6 +764,10 @@ def main():
     algos = [a.strip() for a in args.algos.split(',')]
     seeds = [int(s.strip()) for s in args.seeds.split(',')]
     dyna_k_values = [int(k) for k in args.dyna_k.split(',')] if args.dyna_k else [None]
+    gpu_ids = [int(g.strip()) for g in args.gpu_ids.split(',')]
+    if args.episodes is not None:
+        for algo in algos:
+            ALGO_CONFIGS[algo]['max_episodes'] = args.episodes
 
     print(f"{'='*60}")
     print(f"UAV DRL Full Benchmark")
@@ -729,6 +775,8 @@ def main():
     print(f"Algorithms: {[ALGO_CONFIGS[a]['name'] for a in algos]}")
     print(f"Seeds: {seeds}")
     print(f"Case: {args.case}")
+    print(f"Reward mode: {args.reward_mode}")
+    print(f"GPU IDs: {gpu_ids}")
     if args.dyna_k:
         print(f"Dyna-K sweep: {dyna_k_values}")
     print()
@@ -739,7 +787,7 @@ def main():
     # Build task queue
     tasks = []
     for k in dyna_k_values:
-        co = {}
+        co = {'reward_mode': args.reward_mode}
         k_tag = ''
         if k is not None:
             co['dyna_k'] = k
@@ -748,9 +796,9 @@ def main():
             for seed in seeds:
                 tasks.append((algo, seed, co, args.case, k_tag))
 
-    num_gpus = int(os.environ.get('N_GPU', '2'))
+    num_gpus = len(gpu_ids)
     # N_WORKERS decouples parallelism from GPU count: multiple small-model
-    # processes can share one GPU (round-robin pinned via idx % num_gpus).
+    # processes can share one selected GPU.
     num_workers = min(int(os.environ.get('N_WORKERS', num_gpus)), total_runs)
 
     print(f"Running {total_runs} tasks with {num_workers} parallel workers on {num_gpus} GPU(s)\n")
@@ -758,7 +806,7 @@ def main():
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = {}
         for idx, (algo, seed, co, case, k_tag) in enumerate(tasks):
-            gpu_id = idx % num_gpus
+            gpu_id = gpu_ids[idx % num_gpus]
             fut = executor.submit(_run_single_worker, gpu_id, algo, seed, co, case)
             futures[fut] = (idx, f"[{idx+1}/{total_runs}] {ALGO_CONFIGS[algo]['name']} seed={seed}{k_tag}")
 

@@ -167,6 +167,8 @@ python scripts/analyze_convergence.py
 | Batch Size | 32 | 批处理大小 |
 | Memory Size | 2000 | 经验回放容量 |
 | Dyna-K | 5 | Dyna-Q规划步数 |
+| Dyna warm-up | 32 | 世界模型规划前所需的真实 replay 样本数 |
+| reward_mode | `ee_ratio`（默认） | 奖励目标；可选 `paper_xi`（论文 Ξ）或 `additive`（消融） |
 
 ## 日志系统
 

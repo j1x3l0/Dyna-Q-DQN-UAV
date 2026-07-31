@@ -1,12 +1,13 @@
 """
-Reward function decomposition experiment: compare EE ratio vs additive reward.
+Reward objective experiment: compare historical, paper-aligned, and additive rewards.
 
-Compares two reward formulations at a fixed episode count to isolate the effect
+Compares reward formulations at a fixed episode count to isolate the effect
 of reward design on convergence speed and final performance.
 
 Usage:
   python scripts/reward_decomposition.py
   python scripts/reward_decomposition.py --seeds 42,123 --eps 500 --algos maddpg,dyna
+  python scripts/reward_decomposition.py --modes paper_xi --eps 50
 """
 
 import json
@@ -25,7 +26,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from system_model import Config, Environment
 from maddpg_agent import MADDPGAgent
-from hierarchical_agent import HierarchicalAgent
+from hierarchical_agent import HierarchicalAgent, HierarchicalNoDynaAgent
 from training_utils import get_state_action_dims, decay_epsilon, compose_full_actions, extract_lower_rewards
 
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
@@ -34,41 +35,55 @@ os.makedirs(DECOMP_DIR, exist_ok=True)
 
 TIMESTAMP = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-COLORS = {'ee_ratio': '#1f77b4', 'additive': '#ff7f0e'}
-LABELS = {'ee_ratio': 'EE Ratio (bits/J)', 'additive': 'Additive (data - energy)'}
+REWARD_MODES = ('ee_ratio', 'paper_xi', 'additive')
+COLORS = {
+    'ee_ratio': '#1f77b4',
+    'paper_xi': '#2ca02c',
+    'additive': '#ff7f0e',
+}
+LABELS = {
+    'ee_ratio': 'Historical EE Proxy',
+    'paper_xi': 'Paper Xi (RBS data / energy)',
+    'additive': 'Additive (data - energy)',
+}
+ALGO_LABELS = {
+    'maddpg': 'MADDPG',
+    'nodyna': 'Hierarchical (NoDyna)',
+    'dyna': 'Hierarchical (Dyna-Q)',
+}
 
 
 # ---------------------------------------------------------------------------
-# Config with reward mode switch
-# ---------------------------------------------------------------------------
-class AdditiveRewardConfig(Config):
-    """Config that uses additive reward instead of EE ratio."""
-    def __init__(self, seed=42):
-        super().__init__(seed=seed)
-        self.reward_mode = 'additive'  # 'ee_ratio' or 'additive'
-
-
 def run_experiment(algo: str, seed: int, reward_mode: str, episodes: int, case: int = 1) -> dict:
     """Run training with a specific reward mode and return metrics."""
     config = Config(seed=seed)
-    config.reward_mode = reward_mode  # 'ee_ratio' or 'additive'
+    config.reward_mode = reward_mode
     env = Environment(config)
     is_hier = algo in ('dyna', 'nodyna')
+    state_dim, action_dim = get_state_action_dims(config)
 
     if algo == 'maddpg':
         agent = MADDPGAgent(state_dim, action_dim, config.N, config)
     elif algo == 'dyna':
         agent = HierarchicalAgent(state_dim, action_dim, config.N, config, dyna_k=config.dyna_k)
+    elif algo == 'nodyna':
+        agent = HierarchicalNoDynaAgent(state_dim, action_dim, config.N, config)
     else:
         raise ValueError(f"Unsupported algo for reward decomp: {algo}")
 
     rewards_history = []
     metrics_accum = defaultdict(float)
+    reward_ee_steps = []
+    paper_xi_steps = []
+    episode_records = []
 
     start = time.time()
     for ep in range(episodes):
         states = env.reset(case)
         ep_reward = 0.0
+        ep_metrics = defaultdict(float)
+        ep_reward_ee_steps = []
+        ep_paper_xi_steps = []
 
         while True:
             if is_hier:
@@ -81,6 +96,10 @@ def run_experiment(algo: str, seed: int, reward_mode: str, episodes: int, case: 
             next_states, rewards, done = env.step(actions)
 
             step_info = env.last_step_info or {}
+            ep_metrics['scheduled_actions'] += sum(
+                float(action[4] >= 0.5) for action in actions
+            )
+            ep_metrics['action_decisions'] += len(actions)
 
             if is_hier:
                 lower_rewards = extract_lower_rewards(step_info, rewards, config.N)
@@ -98,21 +117,96 @@ def run_experiment(algo: str, seed: int, reward_mode: str, episodes: int, case: 
                 agent.update()
 
             ep_reward += float(np.sum(rewards))
-            for key in ['data_received', 'data_sent_to_rbs', 'energy_consumed',
-                        'collision_events', 'flight_energy']:
+            for key in [
+                'data_received', 'data_sent_to_rbs', 'energy_consumed',
+                'collision_events', 'collision_penalty', 'flight_energy',
+                'upper_reward', 'lower_reward',
+            ]:
                 val = step_info.get('totals', {}).get(key, 0.0)
-                metrics_accum[key] += float(val) if val is not None else 0.0
+                value = float(val) if val is not None else 0.0
+                metrics_accum[key] += value
+                ep_metrics[key] += value
+
+            step_totals = step_info.get('totals', {})
+            step_energy = (
+                float(step_totals.get('energy_consumed', 0.0))
+                + float(step_totals.get('flight_energy', 0.0))
+            )
+            step_reward_numerator = (
+                float(step_totals.get('data_received', 0.0))
+                + config.gamma_forward
+                * float(step_totals.get('data_sent_to_rbs', 0.0))
+            )
+            step_reward_ee = (
+                step_reward_numerator
+                / max(step_energy, config.denom_epsilon)
+            )
+            step_paper_xi = (
+                float(step_totals.get('data_sent_to_rbs', 0.0))
+                / max(step_energy, config.denom_epsilon)
+            )
+            reward_ee_steps.append(step_reward_ee)
+            paper_xi_steps.append(step_paper_xi)
+            ep_reward_ee_steps.append(step_reward_ee)
+            ep_paper_xi_steps.append(step_paper_xi)
 
             states = next_states
             if done:
                 break
 
         rewards_history.append(ep_reward)
+        ep_total_energy = (
+            ep_metrics['energy_consumed'] + ep_metrics['flight_energy']
+        )
+        episode_records.append({
+            'episode': ep,
+            'reward': float(ep_reward),
+            'reward_ee_proxy': float(np.mean(ep_reward_ee_steps)),
+            'paper_xi': float(np.mean(ep_paper_xi_steps)),
+            'paper_xi_ratio_of_sums': float(
+                ep_metrics['data_sent_to_rbs']
+                / max(ep_total_energy, config.denom_epsilon)
+            ),
+            'data_received': float(ep_metrics['data_received']),
+            'data_sent_to_rbs': float(ep_metrics['data_sent_to_rbs']),
+            'forwarding_ratio': float(
+                ep_metrics['data_sent_to_rbs']
+                / max(ep_metrics['data_received'], config.denom_epsilon)
+            ),
+            'total_energy': float(ep_total_energy),
+            'collision_events': float(ep_metrics['collision_events']),
+            'scheduling_rate': float(
+                ep_metrics['scheduled_actions']
+                / max(ep_metrics['action_decisions'], 1.0)
+            ),
+            'terminal_uav_buffer': float(sum(uav.buffer for uav in env.uavs)),
+        })
         agent.step_episode_schedulers()
         if is_hier:
             decay_epsilon(agent)
 
     duration = time.time() - start
+    total_energy = metrics_accum['energy_consumed'] + metrics_accum['flight_energy']
+    # The environment reward uses received + weighted forwarded data, whereas
+    # the paper objective Xi uses data delivered to the RBS. Keep both explicit.
+    reward_ee_proxy = float(np.mean(reward_ee_steps)) if reward_ee_steps else 0.0
+    paper_xi = float(np.mean(paper_xi_steps)) if paper_xi_steps else 0.0
+    paper_xi_ratio_of_sums = (
+        metrics_accum['data_sent_to_rbs']
+        / max(total_energy, config.denom_epsilon)
+    )
+    episode_rewards = np.asarray([r['reward'] for r in episode_records])
+    episode_xi = np.asarray([r['paper_xi'] for r in episode_records])
+    reward_xi_correlation = None
+    if np.std(episode_rewards) > 0 and np.std(episode_xi) > 0:
+        reward_xi_correlation = float(
+            np.corrcoef(episode_rewards, episode_xi)[0, 1]
+        )
+    forwarding_ratio = float(
+        metrics_accum['data_sent_to_rbs']
+        / max(metrics_accum['data_received'], config.denom_epsilon)
+    )
+
     return {
         'algo': algo,
         'reward_mode': reward_mode,
@@ -121,12 +215,28 @@ def run_experiment(algo: str, seed: int, reward_mode: str, episodes: int, case: 
         'rewards': np.array(rewards_history),
         'metrics': {k: v for k, v in metrics_accum.items()},
         'final_reward': float(np.mean(rewards_history[-50:])) if len(rewards_history) >= 50 else float(np.mean(rewards_history)),
+        'reward_ee_proxy': float(reward_ee_proxy),
+        'paper_xi': float(paper_xi),
+        'paper_xi_ratio_of_sums': float(paper_xi_ratio_of_sums),
+        'total_energy': float(total_energy),
+        'episode_records': episode_records,
+        'diagnostics': {
+            'reward_xi_correlation': reward_xi_correlation,
+            'forwarding_ratio': forwarding_ratio,
+            'zero_reward_fraction': float(np.mean(episode_rewards == 0.0)),
+            'mean_scheduling_rate': float(np.mean([
+                r['scheduling_rate'] for r in episode_records
+            ])),
+            'mean_terminal_uav_buffer': float(np.mean([
+                r['terminal_uav_buffer'] for r in episode_records
+            ])),
+        },
         'duration': duration,
     }
 
 
 def plot_comparison(results: list):
-    """Plot EE ratio vs additive reward comparison."""
+    """Plot reward-objective comparison."""
     # Group by algo and reward mode
     groups = defaultdict(lambda: defaultdict(list))
     for r in results:
@@ -139,7 +249,7 @@ def plot_comparison(results: list):
 
     for idx, (algo, mode_data) in enumerate(sorted(groups.items())):
         ax = axes[idx]
-        for mode in ['ee_ratio', 'additive']:
+        for mode in REWARD_MODES:
             runs = mode_data.get(mode, [])
             if not runs:
                 continue
@@ -156,12 +266,11 @@ def plot_comparison(results: list):
 
         ax.set_xlabel('Episode')
         ax.set_ylabel('Episode Reward')
-        algo_name = 'MADDPG' if algo == 'maddpg' else 'Hierarchical (Dyna-Q)'
-        ax.set_title(f'{algo_name}')
+        ax.set_title(ALGO_LABELS[algo])
         ax.legend()
         ax.grid(True, alpha=0.25)
 
-    # Rightmost: EE ratio bar chart
+    # Rightmost: paper objective Xi (RBS throughput / total UAV energy)
     ax = axes[-1]
     x_pos = []
     bar_data = []
@@ -169,32 +278,43 @@ def plot_comparison(results: list):
     labels_list = []
     pos = 0
     for algo in sorted(groups.keys()):
-        for mode in ['ee_ratio', 'additive']:
+        for mode in REWARD_MODES:
             runs = groups[algo].get(mode, [])
             if runs:
-                ee_values = []
-                for r in runs:
-                    data = r['metrics'].get('data_received', 0)
-                    energy = r['metrics'].get('energy_consumed', 1)
-                    ee_values.append(data / max(energy, 1e-6))
-                mean = np.mean(ee_values)
-                std = np.std(ee_values, ddof=1) if len(ee_values) > 1 else 0
+                xi_values = [r['paper_xi'] for r in runs]
+                mean = np.mean(xi_values)
                 x_pos.append(pos)
                 bar_data.append(mean)
                 bar_colors_list.append(COLORS[mode])
-                algo_name = 'MADDPG' if algo == 'maddpg' else 'Dyna-Q'
-                labels_list.append(f'{algo_name}\n{LABELS[mode].split(chr(32))[1]}')
+                labels_list.append(
+                    f'{ALGO_LABELS[algo]}\n{LABELS[mode].split(chr(32))[1]}'
+                )
                 pos += 1
 
     ax.bar(x_pos, bar_data, color=bar_colors_list, alpha=0.85)
-    ax.errorbar(x_pos, bar_data, yerr=[0] * len(bar_data), fmt='none', ecolor='black', capsize=5)
+    ax.errorbar(
+        x_pos,
+        bar_data,
+        yerr=[
+            np.std(
+                [r['paper_xi'] for r in groups[algo][mode]],
+                ddof=1,
+            ) if len(groups[algo][mode]) > 1 else 0.0
+            for algo in sorted(groups)
+            for mode in REWARD_MODES
+            if groups[algo].get(mode)
+        ],
+        fmt='none',
+        ecolor='black',
+        capsize=5,
+    )
     ax.set_xticks(x_pos)
     ax.set_xticklabels(labels_list, fontsize=8)
-    ax.set_ylabel('EE Ratio (bits/Joule)')
-    ax.set_title('Final Energy Efficiency')
+    ax.set_ylabel(r'Paper objective $\Xi$ (RBS data / total energy)')
+    ax.set_title(r'System Energy Efficiency $\Xi$')
     ax.grid(True, alpha=0.25, axis='y')
 
-    fig.suptitle('Reward Function Decomposition: EE Ratio vs Additive', fontsize=14)
+    fig.suptitle('Reward Objective Comparison', fontsize=14)
     fig.tight_layout(rect=[0, 0, 1, 0.95])
     path = os.path.join(DECOMP_DIR, f'reward_decomposition_{TIMESTAMP}.png')
     fig.savefig(path, dpi=150)
@@ -222,7 +342,7 @@ def main():
                         help='Comma-separated seeds (default: 42,123)')
     parser.add_argument('--eps', type=int, default=500,
                         help='Episode count per experiment')
-    parser.add_argument('--algos', type=str, default='maddpg,dyna',
+    parser.add_argument('--algos', type=str, default='maddpg,nodyna,dyna',
                         help='Algorithms to test')
     parser.add_argument('--modes', type=str, default='ee_ratio,additive',
                         help='Reward modes to compare')
@@ -232,6 +352,12 @@ def main():
     seeds = [int(s.strip()) for s in args.seeds.split(',')]
     algos = [a.strip() for a in args.algos.split(',')]
     modes = [m.strip() for m in args.modes.split(',')]
+    invalid_modes = sorted(set(modes) - set(REWARD_MODES))
+    if invalid_modes:
+        parser.error(
+            f"unsupported reward mode(s): {', '.join(invalid_modes)}; "
+            f"choose from {', '.join(REWARD_MODES)}"
+        )
 
     total = len(algos) * len(seeds) * len(modes)
     print(f"Reward Decomposition Experiment: {total} runs ({len(algos)} algos × {len(seeds)} seeds × {len(modes)} modes)")
@@ -243,7 +369,14 @@ def main():
                 label = f"{a}/{m}/seed{s}"
                 print(f"  [{len(results)+1}/{total}] {label} ...", end=' ', flush=True)
                 r = run_experiment(a, s, m, args.eps, args.case)
-                print(f"reward={r['final_reward']:.2f}, EE={r['metrics']['data_received']/max(r['metrics']['energy_consumed'],1e-6):.2f}")
+                print(
+                    f"reward={r['final_reward']:.2f}, "
+                    f"reward_EE_proxy={r['reward_ee_proxy']:.4f}, "
+                    f"paper_Xi={r['paper_xi']:.4f}, "
+                    f"corr={r['diagnostics']['reward_xi_correlation']}, "
+                    f"forward={r['diagnostics']['forwarding_ratio']:.4f}, "
+                    f"buffer={r['diagnostics']['mean_terminal_uav_buffer']:.2f}"
+                )
                 results.append(r)
 
     plot_comparison(results)
