@@ -1,0 +1,82 @@
+{
+  "inputs": {
+    "gate": "/private/tmp/dyna_ablation_warmup_gate_20260803_113202.json",
+    "anchor": "/private/tmp/dyna_ablation_20260803_092911.json"
+  },
+  "selection": {
+    "dyna_k": 1,
+    "dyna_warmup": 128,
+    "scope": "single-seed engineering gate; not statistical evidence",
+    "reason": "best trade-off of AUC, final Xi, model loss, and wall time"
+  },
+  "rows": [
+    {
+      "warmup": 0,
+      "reward_auc_200": 443.5413310174243,
+      "reward_last_50": 621.5880440792156,
+      "xi_last_50": 0.02072253651530309,
+      "model_loss_last_50": 47.442649936643235,
+      "data_sent_last_50": 375.98143900194896,
+      "data_received_last_50": 519.0015898043735,
+      "energy_last_50": 18142.359387571563,
+      "collisions_per_episode": 0.0,
+      "seconds_per_episode": 18.173544814586638,
+      "reward_auc_200_change_pct": 52.675794971927466,
+      "reward_last_50_change_pct": 63.236906739829074,
+      "xi_last_50_change_pct": 63.09867617189522,
+      "model_loss_last_50_change_pct": 10.9294340203871,
+      "seconds_per_episode_change_pct": -5.322764703950316
+    },
+    {
+      "warmup": 32,
+      "reward_auc_200": 290.51188572424223,
+      "reward_last_50": 380.78891379013794,
+      "xi_last_50": 0.012705520977658279,
+      "model_loss_last_50": 42.76831515062451,
+      "data_sent_last_50": 230.32362257033319,
+      "data_received_last_50": 504.55814988761676,
+      "energy_last_50": 18127.93141878513,
+      "collisions_per_episode": 0.0,
+      "seconds_per_episode": 19.19526352640011,
+      "reward_auc_200_change_pct": 0.0,
+      "reward_last_50_change_pct": 0.0,
+      "xi_last_50_change_pct": 0.0,
+      "model_loss_last_50_change_pct": 0.0,
+      "seconds_per_episode_change_pct": 0.0
+    },
+    {
+      "warmup": 64,
+      "reward_auc_200": 138.044203743973,
+      "reward_last_50": 94.10012822687003,
+      "xi_last_50": 0.003144215198933516,
+      "model_loss_last_50": 6.014436602982382,
+      "data_sent_last_50": 56.91712461356792,
+      "data_received_last_50": 297.00236737648817,
+      "energy_last_50": 18101.04380431881,
+      "collisions_per_episode": 0.0,
+      "seconds_per_episode": 18.209855386018752,
+      "reward_auc_200_change_pct": -52.482424806878164,
+      "reward_last_50_change_pct": -75.28811243734609,
+      "xi_last_50_change_pct": -75.25315802112809,
+      "model_loss_last_50_change_pct": -85.93716731229578,
+      "seconds_per_episode_change_pct": -5.13360047923324
+    },
+    {
+      "warmup": 128,
+      "reward_auc_200": 310.0668681174135,
+      "reward_last_50": 449.529485450589,
+      "xi_last_50": 0.015000667840165828,
+      "model_loss_last_50": 5.760472753012676,
+      "data_sent_last_50": 271.88089628996005,
+      "data_received_last_50": 556.7447468677573,
+      "energy_last_50": 18122.822471002648,
+      "collisions_per_episode": 0.0,
+      "seconds_per_episode": 18.152520575523376,
+      "reward_auc_200_change_pct": 6.731215951602445,
+      "reward_last_50_change_pct": 18.05214626031252,
+      "xi_last_50_change_pct": 18.064169635730764,
+      "model_loss_last_50_change_pct": -86.53098039348748,
+      "seconds_per_episode_change_pct": -5.432292968745153
+    }
+  ]
+}
