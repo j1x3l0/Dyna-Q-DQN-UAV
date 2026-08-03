@@ -254,6 +254,7 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
     algo_cfg = ALGO_CONFIGS[algo]
     config_override = dict(config_override or {})
     max_episodes_override = config_override.pop('_max_episodes', None)
+    run_tag_suffix = config_override.pop('_run_tag_suffix', '')
     # Setup config
     config = Config(seed=seed)
     for key, val in config_override.items():
@@ -262,7 +263,7 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
     variant_tag = (
         f'_k{config.dyna_k}_w{config.dyna_warmup}' if algo == 'dyna' else ''
     )
-    run_tag = f'{algo}_{config.reward_mode}{variant_tag}_seed{seed}'
+    run_tag = f'{algo}_{config.reward_mode}{variant_tag}{run_tag_suffix}_seed{seed}'
     logger, _ = setup_training_logger(run_tag)
 
     state_dim, action_dim = get_state_action_dims(config)
