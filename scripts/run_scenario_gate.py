@@ -35,10 +35,10 @@ from run_full_benchmark import run_single_experiment
 
 
 SCENARIOS = {
-    # name: {config attribute overrides, 'case': env case}
-    'base':   {'boundary': 500.0, 'case': 1},
-    'case2':  {'boundary': 500.0, 'case': 2},
-    'sparse': {'boundary': 800.0, 'case': 1},
+    # name: {config attribute overrides, 'case': env case, '_name': run-tag suffix}
+    'base':   {'boundary': 500.0, 'case': 1, '_name': 'b500'},
+    'case2':  {'boundary': 500.0, 'case': 2, '_name': 'c2'},
+    'sparse': {'boundary': 800.0, 'case': 1, '_name': 'b800'},
 }
 
 
@@ -46,14 +46,15 @@ def _worker(gpu_id, variant, seed, episodes, reward_mode, scenario_overrides):
     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
     algo, override = VARIANTS[variant]
     override = dict(override)
+    scenario_name = scenario_overrides.get('_name', 'scn')
     case = scenario_overrides.get('case', 1)
     for key, val in scenario_overrides.items():
-        if key != 'case':
+        if key not in ('case', '_name'):
             override[key] = val
     override.update({
         'reward_mode': reward_mode,
         '_max_episodes': episodes,
-        '_run_tag_suffix': f'_postfix_{variant}',
+        '_run_tag_suffix': f'_{scenario_name}_postfix_{variant}',
     })
     return variant, run_single_experiment(algo, seed, override, case)
 
