@@ -103,7 +103,8 @@ class Model(nn.Module):
         return reward, next_state
 
 class HierarchicalAgent:
-    def __init__(self, state_dim, action_dim, num_agents, config, dyna_k=None):
+    def __init__(self, state_dim, action_dim, num_agents, config, dyna_k=None,
+                 planning_mode=None):
         logger.info("=" * 60)
         logger.info("Initializing HierarchicalAgent...")
         logger.info("=" * 60)
@@ -122,6 +123,23 @@ class HierarchicalAgent:
         self.dyna_rng = config.rngs['dyna']
         self.dyna_k = config.dyna_k if dyna_k is None else dyna_k
         self.dyna_warmup = max(0, int(getattr(config, 'dyna_warmup', 32)))
+        # Replay-1 (attribution) planning mode:
+        #   'model'  — use the learned world model for the extra single-sample
+        #              Q-update (DynaQ-1, historical default).
+        #   'replay' — use the true (r, s') stored in the replay tuple (perfect
+        #              oracle control). Sampling, gating and update form are
+        #              identical; only the target source differs.
+        mode = getattr(config, 'planning_mode', 'model') if planning_mode is None else planning_mode
+        if mode not in ('model', 'replay'):
+            raise ValueError(f"Unsupported planning_mode: {mode}")
+        self.planning_mode = mode
+        # Zero-cost online model-error instrumentation ('model' mode only):
+        # per planning sample, record |r_hat - r| and ||s_hat' - s'||
+        # (the true values live in the same replay tuple).
+        self.planning_errors = {
+            i: {'count': 0, 'reward_err': 0.0, 'state_err': 0.0}
+            for i in range(num_agents)
+        }
 
         logger.info(f"Hierarchical params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
 
@@ -512,7 +530,21 @@ class HierarchicalAgent:
         for idx in batch:
             s, a, r, ns, d = self.lower_memory[agent_idx][idx]
 
-            r_pred, s_pred = self.model_predict(agent_idx, s, a)
+            if self.planning_mode == 'replay':
+                # Perfect-oracle control: use the true transition stored in the
+                # replay tuple instead of the learned world model. Sampling,
+                # gating and update form are identical to 'model' mode — only
+                # the (r, s') target source differs.
+                r_pred, s_pred = float(r), ns
+            else:
+                r_pred, s_pred = self.model_predict(agent_idx, s, a)
+                # Zero-cost online model-error instrumentation (truth is in the
+                # same tuple): |r_hat - r| and ||s_hat' - s'|| per plan sample.
+                self.planning_errors[agent_idx]['count'] += 1
+                self.planning_errors[agent_idx]['reward_err'] += abs(float(r_pred) - float(r))
+                self.planning_errors[agent_idx]['state_err'] += float(
+                    np.linalg.norm(np.asarray(s_pred, dtype=float) - np.asarray(ns, dtype=float))
+                )
 
             state_tensor = torch.FloatTensor(s).unsqueeze(0).to(self.device)
             action_np = np.array(a)  # (2M,) encoded action
@@ -552,6 +584,26 @@ class HierarchicalAgent:
         self.lower_optimizers[agent_idx].step()
 
         logger.debug(f"dyna_plan({agent_idx}) completed: avg_loss={total_loss/k:.6f}, k={k}")
+
+    def planning_error_summary(self):
+        """Per-agent mean online model error over the current accumulation window
+        ('model' planning mode only). Returns {agent_idx: {count, mean_reward_err,
+        mean_state_err}}; mean is None when the agent recorded no planning samples."""
+        summary = {}
+        for i, stats in self.planning_errors.items():
+            n = stats['count']
+            summary[i] = {
+                'count': n,
+                'mean_reward_err': float(stats['reward_err'] / n) if n else None,
+                'mean_state_err': float(stats['state_err'] / n) if n else None,
+            }
+        return summary
+
+    def reset_planning_errors(self):
+        for i in self.planning_errors:
+            self.planning_errors[i]['count'] = 0
+            self.planning_errors[i]['reward_err'] = 0.0
+            self.planning_errors[i]['state_err'] = 0.0
 
     def step_episode_schedulers(self):
         for i in range(self.num_agents):
