@@ -8,6 +8,8 @@ from hierarchical_agent import HierarchicalAgent
 
 def test_dyna_q():
     config = Config()
+    config.dyna_warmup_steps = 0
+    config.dyna_model_error_threshold = float('inf')
     env = Environment(config)
 
     # M4: 状态维度跟随Config推导(=46，含per-RB信道幅度)
@@ -28,15 +30,10 @@ def test_dyna_q():
         
         for t in range(5):
             upper_actions = agent.upper_act(states)
-            lower_actions = agent.lower_act(states)
-            
-            full_actions = []
-            for i in range(config.N):
-                full_action = np.concatenate([upper_actions[i], lower_actions[i]])
-                full_actions.append(full_action)
-            
-            full_actions = np.array(full_actions)
-            next_states, rewards, done = env.step(full_actions)
+            lower_states = env.prepare_step(upper_actions)
+            lower_actions = agent.lower_act(
+                lower_states, action_masks=env.get_lower_action_masks())
+            next_states, rewards, done = env.complete_step(lower_actions)
             step_info = env.last_step_info or {}
             per_agent_info = step_info.get('per_agent', [])
             lower_rewards = np.array([
@@ -45,7 +42,7 @@ def test_dyna_q():
             ], dtype=float)
             
             for i in range(config.N):
-                agent.add_lower_memory(i, states[i], lower_actions[i], lower_rewards[i], next_states[i], done)
+                agent.add_lower_memory(i, lower_states[i], lower_actions[i], lower_rewards[i], next_states[i], done)
                 agent.update_lower(i)
                 agent.update_model(i)
                 agent.dyna_plan(i, k=3)

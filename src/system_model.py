@@ -71,6 +71,11 @@ class Config:
         self.init_min_separation = 15.0
         self.dyna_k = 1
         self.dyna_warmup = 32
+        self.dyna_warmup_steps = 25_600
+        self.dyna_planning_batch_size = 32
+        self.dyna_model_fraction = 0.25
+        self.dyna_model_error_threshold = 0.20
+        self.dyna_counterfactual_fraction = 0.25
         # ee_ratio: received data + weighted RBS forwarding (historical default)
         # paper_xi: RBS-delivered data / total UAV energy (paper objective)
         # additive: throughput - communication energy (legacy ablation)
@@ -78,7 +83,7 @@ class Config:
 
         # M4: state dimension derived from per-RB channel info
         # pos(3) + buffer(1) + energy(1) + d_i0(1) + g_i per RB(F) + M*(energy(1)+buffer(1)+channel per RB(F))
-        self.state_dim = 6 + self.F + self.M * (2 + self.F)
+        self.state_dim = 7 + self.F + self.M * (3 + self.F)
 
         # M7: target network update mode ('soft' or 'hard'); paper uses hard replace every 100 iters
         # 默认soft以保持各算法基准一致；复现论文设为'hard'即可启用周期硬替换
@@ -213,6 +218,10 @@ class Environment:
         self.gus = [GroundUser(config, i, self.rng) for i in range(config.M)]
         self.time_slot = 0
         self.last_step_info = None
+        self._channel_cache = None
+        self._rate_a = np.zeros((config.N, config.M), dtype=float)
+        self._rate_b = np.zeros((config.N, config.M), dtype=float)
+        self._pending_step = None
         
         logger.info(f"Environment initialized: {config.N} UAVs, {config.M} GUs")
         logger.info("=" * 60)
@@ -263,9 +272,38 @@ class Environment:
 
         self.time_slot = 0
         self.last_step_info = None
+        self._pending_step = None
+        self._refresh_channel_cache()
+        self.calculate_rates()
         logger.info(f"Environment reset completed, time_slot={self.time_slot}")
         
         return self.get_state()
+
+    def _refresh_channel_cache(self):
+        """Draw each physical link once and reuse it throughout one time slot."""
+        rbs_channels = np.zeros((self.config.N, self.config.F), dtype=complex)
+        rbs_distances = np.zeros(self.config.N, dtype=float)
+        gu_channels = np.zeros((self.config.N, self.config.M, self.config.F), dtype=complex)
+        gu_distances = np.zeros((self.config.N, self.config.M), dtype=float)
+        for i, uav in enumerate(self.uavs):
+            channel, distance = self.channel_model.get_channel(uav.pos, self.rbs.pos)
+            rbs_channels[i] = channel.reshape(-1)
+            rbs_distances[i] = distance
+            for m, gu in enumerate(self.gus):
+                gu_pos = np.array([gu.pos[0], gu.pos[1], 0.0])
+                channel, distance = self.channel_model.get_channel(uav.pos, gu_pos)
+                gu_channels[i, m] = channel.reshape(-1)
+                gu_distances[i, m] = distance
+        self._channel_cache = {
+            'rbs_channels': rbs_channels,
+            'rbs_distances': rbs_distances,
+            'gu_channels': gu_channels,
+            'gu_distances': gu_distances,
+        }
+
+    def _ensure_channel_cache(self):
+        if self._channel_cache is None:
+            self._refresh_channel_cache()
     
     def get_coverage(self, uav):
         coverage = []
@@ -279,21 +317,23 @@ class Environment:
     
     def calculate_rates(self):
         logger.debug("Calculating data rates for all UAVs and GUs...")
-        for uav in self.uavs:
+        self._ensure_channel_cache()
+        self._rate_a.fill(0.0)
+        self._rate_b.fill(0.0)
+        for i, uav in enumerate(self.uavs):
             coverage = self.get_coverage(uav)
             for gu_idx in coverage:
-                gu = self.gus[gu_idx]
-                gu_pos_3d = np.array([gu.pos[0], gu.pos[1], 0])
-                h_mi, _ = self.channel_model.get_channel(uav.pos, gu_pos_3d)
+                h_mi = self._channel_cache['gu_channels'][i, gu_idx]
                 h_norm = np.linalg.norm(h_mi)
-                
                 tau_z = self.config.tau_s / max(len(coverage), 1)
-                gu.data_rate_a = tau_z * np.log2(1 + self.config.p_m * h_norm ** 2 / self.config.noise_power)
-                gu.data_rate_b = tau_z * np.log2(1 + self.config.p_A * (self.config.Gamma_o ** 2) * (h_norm ** 4) / (2 * self.config.noise_power))
-                logger.debug(f"GU {gu_idx} rates: RF={gu.data_rate_a:.4f}, backscatter={gu.data_rate_b:.4f}")
+                self._rate_a[i, gu_idx] = tau_z * np.log2(
+                    1 + self.config.p_m * h_norm ** 2 / self.config.noise_power)
+                self._rate_b[i, gu_idx] = tau_z * np.log2(
+                    1 + self.config.p_A * self.config.Gamma_o ** 2 * h_norm ** 4
+                    / (2 * self.config.noise_power))
     
     def calculate_harvested_energy(self, uav, gu_idx, access_control, mode_selection):
-        gu = self.gus[gu_idx]
+        self._ensure_channel_cache()
         harvested = 0.0
 
         coverage = self.get_coverage(uav)
@@ -301,12 +341,8 @@ class Environment:
 
         for other_gu_idx in coverage:
             if other_gu_idx != gu_idx and access_control[other_gu_idx] >= 0.5 and mode_selection[other_gu_idx] < 0.5:
-                # Use backscatter GU n's own channel h_{n,i}, not receiver GU m's h_{m,i}
-                other_gu = self.gus[other_gu_idx]
-                other_gu_pos_3d = np.array([other_gu.pos[0], other_gu.pos[1], 0])
-                h_ni, _ = self.channel_model.get_channel(uav.pos, other_gu_pos_3d)
-                # MRT beamforming: w_{n,i} = h_{n,i} / ||h_{n,i}||
-                w_ni = h_ni / np.linalg.norm(h_ni)
+                h_ni = self._channel_cache['gu_channels'][uav.idx, other_gu_idx]
+                w_ni = h_ni / max(np.linalg.norm(h_ni), 1e-12)
                 h_flat = h_ni.flatten()
                 w_flat = w_ni.flatten()
                 energy = self.config.mu * self.config.p_A * tau_z * np.abs(np.dot(h_flat.conj(), w_flat)) ** 2
@@ -317,27 +353,31 @@ class Environment:
         return harvested
     
     def get_uav_state(self, uav):
+        self._ensure_channel_cache()
         coverage = self.get_coverage(uav)
         # M4: 保留每RB信道幅度(实数)，而非压缩为单一范数，以支持频域选择性调度
         state_list = [float(uav.pos[0]), float(uav.pos[1]), float(uav.pos[2]),
-                      float(uav.buffer), float(uav.energy)]
+                      float(uav.buffer), float(uav.energy), float(uav.scheduled)]
 
-        g_i, d_i0 = self.channel_model.get_channel(uav.pos, self.rbs.pos)
+        g_i = self._channel_cache['rbs_channels'][uav.idx]
+        d_i0 = self._channel_cache['rbs_distances'][uav.idx]
         state_list.append(float(d_i0))
         state_list.extend(np.abs(g_i).flatten().tolist())
 
-        for gu_idx in coverage:
+        for gu_idx in range(self.config.M):
             gu = self.gus[gu_idx]
-            state_list.append(float(gu.energy))
-            state_list.append(float(gu.buffer))
-            gu_pos_3d = np.array([gu.pos[0], gu.pos[1], 0])
-            h_mi, _ = self.channel_model.get_channel(uav.pos, gu_pos_3d)
-            state_list.extend(np.abs(h_mi).flatten().tolist())
+            is_covered = gu_idx in coverage
+            state_list.append(float(is_covered))
+            state_list.append(float(gu.energy) if is_covered else 0.0)
+            state_list.append(float(gu.buffer) if is_covered else 0.0)
+            h_mi = self._channel_cache['gu_channels'][uav.idx, gu_idx]
+            state_list.extend((np.abs(h_mi) if is_covered else np.zeros(self.config.F)).tolist())
 
         state = np.array(state_list, dtype=float)
-        padded_state = np.pad(state, (0, max(0, self.config.state_dim - len(state))))
-        logger.debug(f"UAV {uav.idx} state shape: {padded_state.shape}")
-        return padded_state
+        if state.size != self.config.state_dim:
+            raise RuntimeError(f"state_dim mismatch: built {state.size}, configured {self.config.state_dim}")
+        logger.debug(f"UAV {uav.idx} state shape: {state.shape}")
+        return state
     
     def get_state(self):
         states = []
@@ -347,7 +387,181 @@ class Environment:
         logger.debug(f"get_state: shape={states_array.shape}")
         return states_array
     
+    def get_lower_action_masks(self):
+        """Return valid [no-access, active-RF, backscatter] choices per UAV/GU."""
+        masks = np.zeros((self.config.N, self.config.M, 3), dtype=bool)
+        masks[:, :, 0] = True
+        for i, uav in enumerate(self.uavs):
+            coverage = self.get_coverage(uav)
+            tau_z = self.config.tau_s / max(len(coverage), 1)
+            for m in coverage:
+                masks[i, m, 1] = self.gus[m].energy >= self.config.p_m * tau_z
+                masks[i, m, 2] = True
+        return masks
+
+    def prepare_step(self, upper_actions):
+        """Apply all mobility decisions, then expose the post-move lower-layer state."""
+        if self._pending_step is not None:
+            raise RuntimeError("complete_step must be called before preparing another step")
+        upper_actions = np.asarray(upper_actions, dtype=float)
+        if upper_actions.shape != (self.config.N, 5):
+            raise ValueError(f"upper_actions must have shape {(self.config.N, 5)}, got {upper_actions.shape}")
+
+        speeds = np.zeros(self.config.N, dtype=float)
+        for i, uav in enumerate(self.uavs):
+            direction = upper_actions[i, :3]
+            direction = direction / (np.linalg.norm(direction) + 1e-6)
+            speeds[i] = np.clip(abs(upper_actions[i, 3]), 0.0, 1.0) * self.config.v_max
+            uav.move(direction, speeds[i])
+
+        schedule_scores = np.clip(upper_actions[:, 4], 0.0, 1.0)
+        eligible = np.flatnonzero(schedule_scores >= 0.5)
+        scheduled_idx = int(eligible[np.argmax(schedule_scores[eligible])]) if eligible.size else None
+        for i, uav in enumerate(self.uavs):
+            uav.scheduled = i == scheduled_idx
+
+        collision_counts = np.zeros(self.config.N, dtype=int)
+        collision_penalties = np.zeros(self.config.N, dtype=float)
+        for i in range(self.config.N):
+            for j in range(i + 1, self.config.N):
+                distance = np.linalg.norm(self.uavs[i].pos - self.uavs[j].pos)
+                if distance < self.config.d_min:
+                    penalty = self.config.eta * (1 - distance / self.config.d_min)
+                    collision_counts[i] += 1
+                    collision_counts[j] += 1
+                elif distance < self.config.d_soft:
+                    penalty = self.config.eta_soft * (1 - distance / self.config.d_soft)
+                else:
+                    penalty = 0.0
+                collision_penalties[i] += penalty
+                collision_penalties[j] += penalty
+
+        self._refresh_channel_cache()
+        self.calculate_rates()
+        self._pending_step = {
+            'speeds': speeds,
+            'collision_counts': collision_counts,
+            'collision_penalties': collision_penalties,
+        }
+        return self.get_state()
+
+    def complete_step(self, lower_actions):
+        """Resolve joint GU access, sensing, forwarding, rewards, and slot arrivals."""
+        if self._pending_step is None:
+            raise RuntimeError("prepare_step must be called before complete_step")
+        lower_actions = np.asarray(lower_actions, dtype=float)
+        expected_shape = (self.config.N, 2 * self.config.M)
+        if lower_actions.shape != expected_shape:
+            raise ValueError(f"lower_actions must have shape {expected_shape}, got {lower_actions.shape}")
+
+        access = lower_actions[:, :self.config.M]
+        modes = lower_actions[:, self.config.M:]
+        masks = self.get_lower_action_masks()
+        owners = np.full(self.config.M, -1, dtype=int)
+        for m in range(self.config.M):
+            candidates = [i for i in range(self.config.N)
+                          if access[i, m] >= 0.5 and masks[i, m, 2]]
+            if candidates:
+                owners[m] = max(
+                    candidates,
+                    key=lambda i: np.linalg.norm(self._channel_cache['gu_channels'][i, m]))
+
+        for gu in self.gus:
+            gu.access = False
+            gu.mode = 0
+
+        metrics = []
+        sent_by_gu = np.zeros(self.config.M, dtype=float)
+        for i, uav in enumerate(self.uavs):
+            coverage = self.get_coverage(uav)
+            tau_z = self.config.tau_s / max(len(coverage), 1)
+            data_received = sensing_energy = harvested_total = 0.0
+            for m in np.flatnonzero(owners == i):
+                gu = self.gus[m]
+                mode = 1 if modes[i, m] >= 0.5 and masks[i, m, 1] else 0
+                gu.access = True
+                gu.mode = mode
+                harvested = self.calculate_harvested_energy(uav, m, access[i], modes[i])
+                if mode == 1:
+                    consumed = self.config.p_m * tau_z
+                    data_sent = min(gu.buffer, self._rate_a[i, m])
+                else:
+                    consumed = self.config.p_A * tau_z
+                    data_sent = min(gu.buffer, self._rate_b[i, m])
+                gu.update_energy(harvested, consumed)
+                sent_by_gu[m] = data_sent
+                data_received += data_sent
+                sensing_energy += consumed
+                harvested_total += harvested
+
+            uav.update_buffer(data_received, 0.0)
+            forward_energy = data_to_rbs = 0.0
+            if uav.scheduled:
+                channel = self._channel_cache['rbs_channels'][i]
+                rate = self.config.tau_d * np.log2(
+                    1 + self.config.p_i_r * np.linalg.norm(channel) ** 2 / self.config.noise_power)
+                data_to_rbs = min(uav.buffer, rate)
+                uav.update_buffer(0.0, data_to_rbs)
+                forward_energy = self.config.p_i_r * self.config.tau_d
+                uav.energy -= forward_energy
+
+            speed = self._pending_step['speeds'][i]
+            flight_energy = self.config.P_0 * (
+                1 + 3 * speed ** 2 / self.config.v_max ** 2) * self.config.tau_f
+            total_energy = max(flight_energy + sensing_energy + forward_energy,
+                               self.config.denom_epsilon)
+            numerator = data_received + self.config.gamma_forward * data_to_rbs
+            ee_ratio = numerator / total_energy
+            paper_xi = data_to_rbs / total_energy
+            collision_penalty = self._pending_step['collision_penalties'][i]
+            if self.config.reward_mode == 'additive':
+                upper_reward = numerator - self.config.eta * (sensing_energy + forward_energy) - collision_penalty
+            elif self.config.reward_mode == 'paper_xi':
+                upper_reward = paper_xi * self.config.reward_scale - collision_penalty
+            elif self.config.reward_mode == 'ee_ratio':
+                upper_reward = ee_ratio * self.config.reward_scale - collision_penalty
+            else:
+                raise ValueError(f"Unsupported reward_mode: {self.config.reward_mode}")
+            lower_reward = data_received - self.config.eta1 * harvested_total
+            metrics.append({
+                'collision_events': int(self._pending_step['collision_counts'][i]),
+                'collision_penalty': float(collision_penalty),
+                'data_received': float(data_received),
+                'data_sent_to_rbs': float(data_to_rbs),
+                'sensing_energy_consumed': float(sensing_energy),
+                'forward_energy_consumed': float(forward_energy),
+                'flight_energy': float(flight_energy),
+                'energy_consumed': float(sensing_energy + forward_energy),
+                'harvested_energy': float(harvested_total),
+                'paper_xi': float(paper_xi),
+                'lower_reward': float(lower_reward),
+                'upper_reward': float(upper_reward),
+            })
+
+        # Every GU receives a stochastic arrival once per slot, whether scheduled or not.
+        for m, gu in enumerate(self.gus):
+            gu.update_buffer(sent_by_gu[m], self.rng.uniform(self.config.A_min, self.config.A_max))
+
+        rewards = np.asarray([item['upper_reward'] for item in metrics], dtype=float)
+        total_keys = ('collision_events', 'collision_penalty', 'data_received',
+                      'data_sent_to_rbs', 'energy_consumed', 'flight_energy',
+                      'harvested_energy', 'lower_reward', 'upper_reward')
+        self.last_step_info = {
+            'per_agent': metrics,
+            'totals': {key: sum(item[key] for item in metrics) for key in total_keys},
+        }
+        self.time_slot += 1
+        done = self.time_slot >= 200
+        self._pending_step = None
+        return self.get_state(), rewards, done
+
     def step(self, actions):
+        """Compatibility entry point for flat agents using the concatenated action."""
+        actions = np.asarray(actions, dtype=float)
+        self.prepare_step(actions[:, :5])
+        return self.complete_step(actions[:, 5:5 + 2 * self.config.M])
+
+    def _legacy_step(self, actions):
         logger.info(f"\n=== Step: time_slot={self.time_slot} ===")
         rewards = np.zeros(self.config.N)
         step_info = {

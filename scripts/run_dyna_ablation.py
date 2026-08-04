@@ -139,6 +139,7 @@ def main():
             config = {
                 'dyna_k': k,
                 'dyna_warmup': warmup,
+                'dyna_warmup_steps': warmup * 200,
                 'reward_mode': args.reward_mode,
                 '_max_episodes': args.episodes,
             }

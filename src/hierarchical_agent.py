@@ -32,6 +32,22 @@ stream_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
+
+def _lower_action_masks_from_states(states, config):
+    """Build [no-access, RF, backscatter] masks from fixed-slot state tensors."""
+    base, stride = 7 + config.F, 3 + config.F
+    covered = torch.stack(
+        [states[:, base + j * stride] >= 0.5 for j in range(config.M)], dim=1)
+    energies = torch.stack(
+        [states[:, base + j * stride + 1] for j in range(config.M)], dim=1)
+    covered_count = covered.sum(dim=1, keepdim=True).clamp(min=1)
+    rf_required = config.p_m * config.tau_s / covered_count
+    return torch.stack([
+        torch.ones_like(covered),
+        covered & (energies >= rf_required),
+        covered,
+    ], dim=2)
+
 class UpperActor(nn.Module):
     def __init__(self, state_dim, continuous_dim, discrete_dim, hidden_dim=64):
         super(UpperActor, self).__init__()
@@ -85,7 +101,7 @@ class LowerDQN(nn.Module):
         return x
 
 class Model(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim=64):
+    def __init__(self, state_dim, action_dim, state_scale, hidden_dim=64):
         super(Model, self).__init__()
         logger.info(f"Creating Model: state_dim={state_dim}, action_dim={action_dim}, hidden_dim={hidden_dim}")
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
@@ -93,17 +109,19 @@ class Model(nn.Module):
         self.fc_reward = nn.Linear(hidden_dim, 1)
         self.fc_next_state = nn.Linear(hidden_dim, state_dim)
         self.relu = nn.ReLU()
+        self.register_buffer('state_scale', torch.as_tensor(state_scale, dtype=torch.float32))
     
     def forward(self, state, action):
-        x = torch.cat([state, action], dim=1)
+        x = torch.cat([state / self.state_scale, action], dim=1)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         reward = self.fc_reward(x)
-        next_state = self.fc_next_state(x)
+        next_state = state + self.fc_next_state(x) * self.state_scale
         return reward, next_state
 
 class HierarchicalAgent:
-    def __init__(self, state_dim, action_dim, num_agents, config, dyna_k=None):
+    def __init__(self, state_dim, action_dim, num_agents, config, dyna_k=None,
+                 planning_mode=None):
         logger.info("=" * 60)
         logger.info("Initializing HierarchicalAgent...")
         logger.info("=" * 60)
@@ -122,6 +140,30 @@ class HierarchicalAgent:
         self.dyna_rng = config.rngs['dyna']
         self.dyna_k = config.dyna_k if dyna_k is None else dyna_k
         self.dyna_warmup = max(0, int(getattr(config, 'dyna_warmup', 32)))
+        self.dyna_warmup_steps = max(0, int(getattr(config, 'dyna_warmup_steps', 0)))
+        self.dyna_planning_batch_size = max(1, int(getattr(config, 'dyna_planning_batch_size', 32)))
+        self.dyna_model_fraction = float(getattr(config, 'dyna_model_fraction', 0.25))
+        self.dyna_model_error_threshold = float(getattr(config, 'dyna_model_error_threshold', 0.20))
+        self.dyna_counterfactual_fraction = float(getattr(config, 'dyna_counterfactual_fraction', 0.25))
+        self.real_steps = np.zeros(num_agents, dtype=np.int64)
+        self.model_error_ema = np.full(num_agents, np.inf, dtype=float)
+        # Replay-1 (attribution) planning mode:
+        #   'model'  — use the learned world model for the extra single-sample
+        #              Q-update (DynaQ-1, historical default).
+        #   'replay' — use the true (r, s') stored in the replay tuple (perfect
+        #              oracle control). Sampling, gating and update form are
+        #              identical; only the target source differs.
+        mode = getattr(config, 'planning_mode', 'model') if planning_mode is None else planning_mode
+        if mode not in ('model', 'replay'):
+            raise ValueError(f"Unsupported planning_mode: {mode}")
+        self.planning_mode = mode
+        # Zero-cost online model-error instrumentation ('model' mode only):
+        # per planning sample, record |r_hat - r| and ||s_hat' - s'||
+        # (the true values live in the same replay tuple).
+        self.planning_errors = {
+            i: {'count': 0, 'reward_err': 0.0, 'state_err': 0.0}
+            for i in range(num_agents)
+        }
 
         logger.info(f"Hierarchical params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
 
@@ -162,7 +204,9 @@ class HierarchicalAgent:
         
         if self.dyna_k > 0:
             logger.info("Creating Dyna-Q model networks...")
-            self.models = [Model(state_dim, 2 * config.M).to(self.device) for _ in range(num_agents)]
+            state_scale = self._build_state_scale()
+            self.models = [Model(state_dim, 2 * config.M, state_scale).to(self.device)
+                           for _ in range(num_agents)]
             
             logger.info("Creating model optimizers...")
             self.model_optimizers = [optim.Adam(self.models[i].parameters(), lr=1e-4) for i in range(num_agents)]
@@ -208,6 +252,18 @@ class HierarchicalAgent:
         logger.info("=" * 60)
         logger.info("HierarchicalAgent initialization complete!")
         logger.info("=" * 60)
+
+    def _build_state_scale(self):
+        """Feature scales for the fixed-slot state; used only by the world model."""
+        scale = [self.config.boundary, self.config.boundary, 100.0,
+                 5000.0, 100.0, 1.0, 1500.0]
+        scale.extend([1e-3] * self.config.F)
+        for _ in range(self.config.M):
+            scale.extend([1.0, self.config.E_max, 5000.0])
+            scale.extend([1e-3] * self.config.F)
+        if len(scale) != self.state_dim:
+            raise ValueError(f"state scale has {len(scale)} values, expected {self.state_dim}")
+        return np.asarray(scale, dtype=np.float32)
     
     def upper_act(self, states, noise=True):
         logger.debug(f"upper_act() called: states shape={states.shape}, noise={noise}")
@@ -232,7 +288,7 @@ class HierarchicalAgent:
         logger.debug(f"upper_act() completed: actions shape={actions_array.shape}")
         return actions_array
     
-    def lower_act(self, states):
+    def lower_act(self, states, action_masks=None):
         logger.debug(f"lower_act() called: states shape={states.shape}, epsilon={self.epsilon}")
         actions = []
         M = self.config.M
@@ -242,7 +298,13 @@ class HierarchicalAgent:
 
             if self.action_rng.random() < self.epsilon:
                 # Random: pick one of {0,1,2} per GU, encode to 2M
-                action_indices = self.action_rng.integers(0, 3, size=M)
+                if action_masks is None:
+                    action_indices = self.action_rng.integers(0, 3, size=M)
+                else:
+                    action_indices = np.array([
+                        self.action_rng.choice(np.flatnonzero(action_masks[i, j]))
+                        for j in range(M)
+                    ])
                 action = np.zeros(2 * M)
                 for j, idx in enumerate(action_indices):
                     if idx == 0:      # no access
@@ -257,6 +319,8 @@ class HierarchicalAgent:
                 action = np.zeros(2 * M)
                 for j in range(M):
                     q_slice = q_values[j * 3 : j * 3 + 3]  # Q for {no_access, RF, BS}
+                    if action_masks is not None:
+                        q_slice = np.where(action_masks[i, j], q_slice, -np.inf)
                     idx = int(np.argmax(q_slice))
                     if idx == 0:      # no access
                         action[j] = 0; action[M + j] = 0
@@ -281,6 +345,7 @@ class HierarchicalAgent:
     def add_lower_memory(self, agent_idx, state, action, reward, next_state, done):
         logger.debug(f"add_lower_memory() called: agent_idx={agent_idx}, reward={reward:.4f}, done={done}")
         self.lower_memory[agent_idx].append((state, action, reward, next_state, done))
+        self.real_steps[agent_idx] += 1
         logger.debug(f"Lower memory[{agent_idx}] size: {len(self.lower_memory[agent_idx])}/{self.lower_memory[agent_idx].maxlen}")
     
     def update_upper(self):
@@ -393,6 +458,7 @@ class HierarchicalAgent:
 
         with torch.no_grad():
             next_q_all = self.target_lower_dqns[agent_idx](next_states_batch)  # (batch, 3M)
+            next_masks = _lower_action_masks_from_states(next_states_batch, self.config)
 
         M = self.config.M
         total_loss = 0.0
@@ -410,6 +476,7 @@ class HierarchicalAgent:
 
             # Target: r + gamma * max_a' Q'(s', a')
             next_q_slice = next_q_all[:, j * 3 : j * 3 + 3]  # (batch, 3)
+            next_q_slice = next_q_slice.masked_fill(~next_masks[:, j], -torch.inf)
             max_next_q_j = next_q_slice.max(dim=1)[0]  # (batch,)
             target_j = rewards_batch + self.gamma * max_next_q_j * (1 - dones_batch)
 
@@ -465,13 +532,30 @@ class HierarchicalAgent:
         actions_batch = torch.FloatTensor(np.array(actions_batch)).to(self.device)
         rewards_batch = torch.FloatTensor(np.array(rewards_batch)).unsqueeze(1).to(self.device)
         next_states_batch = torch.FloatTensor(np.array(next_states_batch)).to(self.device)
-        
+        split = max(1, int(0.8 * states_batch.shape[0]))
+        train_states, val_states = states_batch[:split], states_batch[split:]
+        train_actions, val_actions = actions_batch[:split], actions_batch[split:]
+        train_rewards, val_rewards = rewards_batch[:split], rewards_batch[split:]
+        train_next_states, val_next_states = next_states_batch[:split], next_states_batch[split:]
+
         self.models[agent_idx].train()
-        reward_pred, next_state_pred = self.models[agent_idx](states_batch, actions_batch)
+        reward_pred, next_state_pred = self.models[agent_idx](train_states, train_actions)
         
-        reward_loss = nn.MSELoss()(reward_pred, rewards_batch)
-        state_loss = nn.MSELoss()(next_state_pred, next_states_batch)
+        reward_loss = nn.SmoothL1Loss()(reward_pred, train_rewards)
+        state_error = (next_state_pred - train_next_states) / self.models[agent_idx].state_scale
+        state_loss = nn.SmoothL1Loss()(state_error, torch.zeros_like(state_error))
         total_loss = reward_loss + state_loss
+        self.models[agent_idx].eval()
+        with torch.no_grad():
+            _, val_next_pred = self.models[agent_idx](val_states, val_actions)
+            validation_error = (
+                (val_next_pred - val_next_states) / self.models[agent_idx].state_scale
+            ).abs().mean()
+        normalized_mae = float(validation_error.item())
+        previous = self.model_error_ema[agent_idx]
+        self.model_error_ema[agent_idx] = (
+            normalized_mae if not np.isfinite(previous)
+            else 0.95 * previous + 0.05 * normalized_mae)
         
         logger.debug(f"Model {agent_idx} loss: reward_loss={reward_loss.item():.6f}, state_loss={state_loss.item():.6f}, total_loss={total_loss.item():.6f}")
         
@@ -483,8 +567,82 @@ class HierarchicalAgent:
             'reward_loss': float(reward_loss.item()),
             'state_loss': float(state_loss.item()),
             'total_loss': float(total_loss.item()),
+            'normalized_state_mae': normalized_mae,
+            'normalized_state_mae_ema': float(self.model_error_ema[agent_idx]),
         }
     
+    def _dyna_plan_batch(self, agent_idx, k):
+        batch_size = max(k, int(np.ceil(
+            self.dyna_planning_batch_size * self.dyna_model_fraction)))
+        batch_size = min(batch_size, len(self.lower_memory[agent_idx]))
+        indices = self.dyna_rng.choice(
+            len(self.lower_memory[agent_idx]), batch_size, replace=False)
+        samples = [self.lower_memory[agent_idx][idx] for idx in indices]
+        states = np.asarray([x[0] for x in samples], dtype=np.float32)
+        actions = np.asarray([x[1] for x in samples], dtype=np.float32)
+        true_rewards = np.asarray([x[2] for x in samples], dtype=np.float32)
+        true_next = np.asarray([x[3] for x in samples], dtype=np.float32)
+        dones = np.asarray([x[4] for x in samples], dtype=np.float32)
+        counterfactual = np.zeros(batch_size, dtype=bool)
+
+        if self.planning_mode == 'model' and self.dyna_counterfactual_fraction > 0:
+            with torch.no_grad():
+                q_np = self.lower_dqns[agent_idx](
+                    torch.as_tensor(states, device=self.device)).cpu().numpy()
+            base, stride = 7 + self.config.F, 3 + self.config.F
+            for b in range(batch_size):
+                if self.dyna_rng.random() >= self.dyna_counterfactual_fraction:
+                    continue
+                covered = [j for j in range(self.config.M)
+                           if states[b, base + j * stride] >= 0.5]
+                if not covered:
+                    continue
+                j = int(self.dyna_rng.choice(covered))
+                choice = int(np.argmax(q_np[b, j * 3:j * 3 + 3]))
+                actions[b, j] = float(choice != 0)
+                actions[b, self.config.M + j] = float(choice == 1)
+                counterfactual[b] = True
+
+        state_t = torch.as_tensor(states, device=self.device)
+        action_t = torch.as_tensor(actions, device=self.device)
+        done_t = torch.as_tensor(dones, device=self.device)
+        if self.planning_mode == 'replay':
+            reward_t = torch.as_tensor(true_rewards, device=self.device)
+            next_t = torch.as_tensor(true_next, device=self.device)
+        else:
+            self.models[agent_idx].eval()
+            with torch.no_grad():
+                reward_pred, next_t = self.models[agent_idx](state_t, action_t)
+            reward_t = reward_pred.squeeze(1)
+            scale = self.models[agent_idx].state_scale.cpu().numpy()
+            for b in np.flatnonzero(~counterfactual):
+                stats = self.planning_errors[agent_idx]
+                stats['count'] += 1
+                stats['reward_err'] += abs(float(reward_t[b].item()) - float(true_rewards[b]))
+                stats['state_err'] += float(np.linalg.norm(
+                    (next_t[b].cpu().numpy() - true_next[b]) / scale))
+
+        q_all = self.lower_dqns[agent_idx](state_t).view(batch_size, self.config.M, 3)
+        access_t, mode_t = action_t[:, :self.config.M], action_t[:, self.config.M:]
+        action_idx = torch.where(
+            access_t < 0.5, torch.zeros_like(access_t, dtype=torch.long),
+            torch.where(mode_t >= 0.5, torch.ones_like(access_t, dtype=torch.long),
+                        torch.full_like(access_t, 2, dtype=torch.long)))
+        chosen_q = q_all.gather(2, action_idx.unsqueeze(2)).squeeze(2)
+        with torch.no_grad():
+            next_q_all = self.target_lower_dqns[agent_idx](next_t).view(
+                batch_size, self.config.M, 3)
+            next_masks = _lower_action_masks_from_states(next_t, self.config)
+            next_q = next_q_all.masked_fill(~next_masks, -torch.inf).max(dim=2).values
+            targets = reward_t.unsqueeze(1) + self.gamma * next_q * (1 - done_t.unsqueeze(1))
+        loss = nn.SmoothL1Loss()(chosen_q, targets)
+        self.lower_optimizers[agent_idx].zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.lower_dqns[agent_idx].parameters(), self.clip_norm)
+        self.lower_optimizers[agent_idx].step()
+        self.soft_update(self.lower_dqns[agent_idx], self.target_lower_dqns[agent_idx])
+        return float(loss.item())
+
     def dyna_plan(self, agent_idx, k=None):
         if self.dyna_k <= 0 or not self.models:
             return
@@ -501,6 +659,13 @@ class HierarchicalAgent:
             )
             return
 
+        if self.real_steps[agent_idx] < self.dyna_warmup_steps:
+            return
+        if (self.planning_mode == 'model'
+                and self.model_error_ema[agent_idx] > self.dyna_model_error_threshold):
+            return
+        return self._dyna_plan_batch(agent_idx, k)
+
         logger.debug(f"dyna_plan({agent_idx}) called: k={k}, memory size={len(self.lower_memory[agent_idx])}")
 
         batch = self.dyna_rng.choice(len(self.lower_memory[agent_idx]), k, replace=False)
@@ -512,7 +677,21 @@ class HierarchicalAgent:
         for idx in batch:
             s, a, r, ns, d = self.lower_memory[agent_idx][idx]
 
-            r_pred, s_pred = self.model_predict(agent_idx, s, a)
+            if self.planning_mode == 'replay':
+                # Perfect-oracle control: use the true transition stored in the
+                # replay tuple instead of the learned world model. Sampling,
+                # gating and update form are identical to 'model' mode — only
+                # the (r, s') target source differs.
+                r_pred, s_pred = float(r), ns
+            else:
+                r_pred, s_pred = self.model_predict(agent_idx, s, a)
+                # Zero-cost online model-error instrumentation (truth is in the
+                # same tuple): |r_hat - r| and ||s_hat' - s'|| per plan sample.
+                self.planning_errors[agent_idx]['count'] += 1
+                self.planning_errors[agent_idx]['reward_err'] += abs(float(r_pred) - float(r))
+                self.planning_errors[agent_idx]['state_err'] += float(
+                    np.linalg.norm(np.asarray(s_pred, dtype=float) - np.asarray(ns, dtype=float))
+                )
 
             state_tensor = torch.FloatTensor(s).unsqueeze(0).to(self.device)
             action_np = np.array(a)  # (2M,) encoded action
@@ -553,6 +732,26 @@ class HierarchicalAgent:
 
         logger.debug(f"dyna_plan({agent_idx}) completed: avg_loss={total_loss/k:.6f}, k={k}")
 
+    def planning_error_summary(self):
+        """Per-agent mean online model error over the current accumulation window
+        ('model' planning mode only). Returns {agent_idx: {count, mean_reward_err,
+        mean_state_err}}; mean is None when the agent recorded no planning samples."""
+        summary = {}
+        for i, stats in self.planning_errors.items():
+            n = stats['count']
+            summary[i] = {
+                'count': n,
+                'mean_reward_err': float(stats['reward_err'] / n) if n else None,
+                'mean_state_err': float(stats['state_err'] / n) if n else None,
+            }
+        return summary
+
+    def reset_planning_errors(self):
+        for i in self.planning_errors:
+            self.planning_errors[i]['count'] = 0
+            self.planning_errors[i]['reward_err'] = 0.0
+            self.planning_errors[i]['state_err'] = 0.0
+
     def step_episode_schedulers(self):
         for i in range(self.num_agents):
             self.upper_actor_schedulers[i].step()
@@ -580,6 +779,8 @@ class HierarchicalAgent:
         checkpoint = {
             'episode': episode,
             'epsilon': self.epsilon,
+            'real_steps': self.real_steps.copy(),
+            'model_error_ema': self.model_error_ema.copy(),
             'upper_actors': {i: self.upper_actors[i].state_dict() for i in range(self.num_agents)},
             'target_upper_actors': {i: self.target_upper_actors[i].state_dict() for i in range(self.num_agents)},
             'upper_critics': {i: self.upper_critics[i].state_dict() for i in range(self.num_agents)},
@@ -621,6 +822,9 @@ class HierarchicalAgent:
                 self.model_optimizers[i].load_state_dict(checkpoint['model_optimizers'][i])
                 self.model_schedulers[i].load_state_dict(checkpoint['model_schedulers'][i])
         self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        self.real_steps = np.asarray(checkpoint.get('real_steps', self.real_steps), dtype=np.int64)
+        self.model_error_ema = np.asarray(
+            checkpoint.get('model_error_ema', self.model_error_ema), dtype=float)
         logger.info(f"Checkpoint loaded from {filepath} (episode {checkpoint['episode']}, epsilon={self.epsilon:.4f})")
         return checkpoint['episode']
 
@@ -732,7 +936,7 @@ class HierarchicalNoDynaAgent:
         actions_array = np.array(actions)
         return actions_array
     
-    def lower_act(self, states):
+    def lower_act(self, states, action_masks=None):
         logger.debug(f"lower_act() called: states shape={states.shape}, epsilon={self.epsilon}")
         actions = []
         M = self.config.M
@@ -742,7 +946,13 @@ class HierarchicalNoDynaAgent:
 
             if self.action_rng.random() < self.epsilon:
                 # Random: pick one of {0,1,2} per GU, encode to 2M
-                action_indices = self.action_rng.integers(0, 3, size=M)
+                if action_masks is None:
+                    action_indices = self.action_rng.integers(0, 3, size=M)
+                else:
+                    action_indices = np.array([
+                        self.action_rng.choice(np.flatnonzero(action_masks[i, j]))
+                        for j in range(M)
+                    ])
                 action = np.zeros(2 * M)
                 for j, idx in enumerate(action_indices):
                     if idx == 0: action[j] = 0; action[M + j] = 0
@@ -753,6 +963,8 @@ class HierarchicalNoDynaAgent:
                 action = np.zeros(2 * M)
                 for j in range(M):
                     q_slice = q_values[j * 3 : j * 3 + 3]
+                    if action_masks is not None:
+                        q_slice = np.where(action_masks[i, j], q_slice, -np.inf)
                     idx = int(np.argmax(q_slice))
                     if idx == 0: action[j] = 0; action[M + j] = 0
                     elif idx == 1: action[j] = 1; action[M + j] = 1
@@ -856,6 +1068,7 @@ class HierarchicalNoDynaAgent:
 
         with torch.no_grad():
             next_q_all = self.target_lower_dqns[agent_idx](next_states_batch)  # (batch, 3M)
+            next_masks = _lower_action_masks_from_states(next_states_batch, self.config)
 
         M = self.config.M
         total_loss = 0.0
@@ -870,6 +1083,7 @@ class HierarchicalNoDynaAgent:
             q_j = q_slice.gather(1, action_idx.unsqueeze(1)).squeeze(1)
 
             next_q_slice = next_q_all[:, j * 3 : j * 3 + 3]
+            next_q_slice = next_q_slice.masked_fill(~next_masks[:, j], -torch.inf)
             max_next_q_j = next_q_slice.max(dim=1)[0]
             target_j = rewards_batch + self.gamma * max_next_q_j * (1 - dones_batch)
 

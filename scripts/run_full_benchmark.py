@@ -254,15 +254,16 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
     algo_cfg = ALGO_CONFIGS[algo]
     config_override = dict(config_override or {})
     max_episodes_override = config_override.pop('_max_episodes', None)
+    run_tag_suffix = config_override.pop('_run_tag_suffix', '')
     # Setup config
     config = Config(seed=seed)
     for key, val in config_override.items():
         setattr(config, key, val)
     env = Environment(config)
     variant_tag = (
-        f'_k{config.dyna_k}_w{config.dyna_warmup}' if algo == 'dyna' else ''
+        f'_k{config.dyna_k}_ws{config.dyna_warmup_steps}' if algo == 'dyna' else ''
     )
-    run_tag = f'{algo}_{config.reward_mode}{variant_tag}_seed{seed}'
+    run_tag = f'{algo}_{config.reward_mode}{variant_tag}{run_tag_suffix}_seed{seed}'
     logger, _ = setup_training_logger(run_tag)
 
     state_dim, action_dim = get_state_action_dims(config)
@@ -312,14 +313,17 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         episode_reward = 0.0
         episode_totals = {key: 0.0 for key in metric_keys}
         episode_model_losses = []
+        episode_plan_losses = []
+        episode_plan_calls = 0
 
         while True:
             if is_hierarchical(algo):
                 # Hierarchical action selection
                 upper_actions = agent.upper_act(states)
-                lower_actions = agent.lower_act(states)
-                full_actions = compose_full_actions(upper_actions, lower_actions, config.N)
-                next_states, rewards, done = env.step(full_actions)
+                lower_states = env.prepare_step(upper_actions)
+                lower_actions = agent.lower_act(
+                    lower_states, action_masks=env.get_lower_action_masks())
+                next_states, rewards, done = env.complete_step(lower_actions)
 
                 step_info = env.last_step_info or {}
                 lower_rewards = extract_lower_rewards(step_info, rewards, config.N)
@@ -328,14 +332,17 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                 agent.update_upper()
 
                 for i in range(config.N):
-                    agent.add_lower_memory(i, states[i], lower_actions[i], lower_rewards[i],
+                    agent.add_lower_memory(i, lower_states[i], lower_actions[i], lower_rewards[i],
                                           next_states[i], done)
                     agent.update_lower(i)
                     if algo == 'dyna':
                         model_stats = agent.update_model(i)
                         if model_stats is not None:
                             episode_model_losses.append(model_stats)
-                        agent.dyna_plan(i)
+                        plan_loss = agent.dyna_plan(i)
+                        episode_plan_calls += 1
+                        if plan_loss is not None:
+                            episode_plan_losses.append(plan_loss)
             else:
                 # Flat action selection (iDDPG / MADDPG)
                 actions = agent.act(states)
@@ -365,11 +372,17 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                 config.denom_epsilon,
             )
         )
-        for loss_key in ('reward_loss', 'state_loss', 'total_loss'):
+        for loss_key in ('reward_loss', 'state_loss', 'total_loss',
+                         'normalized_state_mae', 'normalized_state_mae_ema'):
             episode_totals[f'model_{loss_key}'] = (
                 float(np.mean([x[loss_key] for x in episode_model_losses]))
                 if episode_model_losses else None
             )
+        episode_totals['dyna_plan_loss'] = (
+            float(np.mean(episode_plan_losses)) if episode_plan_losses else None)
+        episode_totals['dyna_plan_updates'] = len(episode_plan_losses)
+        episode_totals['dyna_plan_enabled_fraction'] = (
+            len(episode_plan_losses) / max(episode_plan_calls, 1))
         episode_metrics.append(episode_totals)
         agent.step_episode_schedulers()
 
