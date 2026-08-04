@@ -1,0 +1,28 @@
+2026-08-05 03:05:51,382 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Starting Hierarchical (NoDyna) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 03:05:51,452 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Starting Hierarchical (Dyna-Q) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 03:05:51,469 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Starting Hierarchical (Dyna-Q) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 03:06:03,357 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:06:03,630 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:06:06,415 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:08:16,240 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Ep    10 | avg_r(last_11)=   -141.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:08:21,968 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Ep    10 | avg_r(last_11)=   -141.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:08:53,923 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Ep    10 | avg_r(last_11)=   -141.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:10:27,387 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Ep    20 | avg_r(last_21)=    -43.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:10:37,213 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Ep    20 | avg_r(last_21)=    -43.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:11:38,018 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Ep    20 | avg_r(last_21)=    -43.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:12:40,792 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Ep    30 | avg_r(last_31)=      9.01 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:12:55,222 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Ep    30 | avg_r(last_31)=      9.01 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:14:23,838 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Ep    30 | avg_r(last_31)=      9.01 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:14:53,989 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Ep    40 | avg_r(last_41)=     21.14 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:15:11,747 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Ep    40 | avg_r(last_41)=     21.14 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:17:11,647 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Ep    40 | avg_r(last_41)=     21.14 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:28:14,049 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Ep   100 | avg_r(last_50)=     80.99 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:29:14,485 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Ep   100 | avg_r(last_50)=     80.99 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:33:52,373 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Ep   100 | avg_r(last_50)=     80.99 | best_ra=      -inf, eps=0.0500
+2026-08-05 03:50:14,779 - nodyna_paper_xi_postfix_nodyna_seed42 - INFO - Hierarchical (NoDyna) seed=42 completed: 200 episodes, duration=2663.4s, stopped_early=False, reason=reached max_episodes (200)
+nodyna: completed, episodes=200, final_reward=74.790
+2026-08-05 03:51:55,008 - dyna_paper_xi_k0_ws0_postfix_dyna_off_seed42 - INFO - Hierarchical (Dyna-Q) seed=42 completed: 200 episodes, duration=2763.5s, stopped_early=False, reason=reached max_episodes (200)
+dyna_off: completed, episodes=200, final_reward=74.790
+2026-08-05 04:02:36,507 - dyna_paper_xi_k1_ws25600_postfix_dyna_gated_seed42 - INFO - Hierarchical (Dyna-Q) seed=42 completed: 200 episodes, duration=3405.0s, stopped_early=False, reason=reached max_episodes (200)
+dyna_gated: completed, episodes=200, final_reward=77.383
+manifest=/root/uav_dyna_postfix_20260805/results/postfix_dyna_gate_20260805_030549/manifest.json
