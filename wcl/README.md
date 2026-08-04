@@ -2,7 +2,7 @@
 
 > 面向 *IEEE Wireless Communications Letters*（WCL）投稿的所有准备材料。
 > 汇总已有内容（迁移自 `reports/` 与项目根目录）与后续起草内容。
-> 实验主计划仍见 `../training_and_wcl_plan.md`；进度审查见 `../reports/当前进度审查报告_20260803.md`。
+> 实验主计划仍见 `../training_and_wcl_plan.md`；历史进度审查见 `../past/当前进度审查报告_20260803.md`。
 
 ## 目录
 
