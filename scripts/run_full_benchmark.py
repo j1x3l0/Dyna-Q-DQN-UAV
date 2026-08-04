@@ -314,6 +314,7 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         episode_totals = {key: 0.0 for key in metric_keys}
         episode_model_losses = []
         episode_plan_losses = []
+        episode_plan_infos = []
         episode_plan_calls = 0
 
         while True:
@@ -341,6 +342,9 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                             episode_model_losses.append(model_stats)
                         plan_loss = agent.dyna_plan(i)
                         episode_plan_calls += 1
+                        plan_info = agent.last_plan_info[i]
+                        if plan_info is not None:
+                            episode_plan_infos.append(dict(plan_info))
                         if plan_loss is not None:
                             episode_plan_losses.append(plan_loss)
             else:
@@ -373,7 +377,8 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
             )
         )
         for loss_key in ('reward_loss', 'state_loss', 'total_loss',
-                         'normalized_state_mae', 'normalized_state_mae_ema'):
+                         'normalized_state_mae', 'normalized_state_mae_ema',
+                         'bellman_error', 'bellman_error_ema'):
             episode_totals[f'model_{loss_key}'] = (
                 float(np.mean([x[loss_key] for x in episode_model_losses]))
                 if episode_model_losses else None
@@ -383,6 +388,23 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         episode_totals['dyna_plan_updates'] = len(episode_plan_losses)
         episode_totals['dyna_plan_enabled_fraction'] = (
             len(episode_plan_losses) / max(episode_plan_calls, 1))
+        eligible_infos = [x for x in episode_plan_infos if x['eligible'] > 0]
+        planned_infos = [x for x in episode_plan_infos if x['planned'] > 0]
+        plan_sample_weights = [
+            x['sample_weight'] for x in planned_infos if x['sample_weight'] is not None]
+        plan_bellman_errors = [
+            x['sample_bellman_error'] for x in planned_infos
+            if x['sample_bellman_error'] is not None]
+        episode_totals['dyna_plan_probability'] = (
+            float(np.mean([x['plan_probability'] for x in eligible_infos]))
+            if eligible_infos else 0.0)
+        episode_totals['dyna_plan_trust'] = (
+            float(np.mean([x['trust'] for x in eligible_infos]))
+            if eligible_infos else None)
+        episode_totals['dyna_plan_sample_weight'] = (
+            float(np.mean(plan_sample_weights)) if plan_sample_weights else None)
+        episode_totals['dyna_plan_bellman_error'] = (
+            float(np.mean(plan_bellman_errors)) if plan_bellman_errors else None)
         episode_metrics.append(episode_totals)
         agent.step_episode_schedulers()
 

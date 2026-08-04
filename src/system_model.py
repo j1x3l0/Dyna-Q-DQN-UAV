@@ -76,6 +76,15 @@ class Config:
         self.dyna_model_fraction = 0.25
         self.dyna_model_error_threshold = 0.20
         self.dyna_counterfactual_fraction = 0.25
+        # Planning strategy: ``state_gate`` preserves the repaired Dyna
+        # baseline; ``bcad`` uses Bellman-consistency trust and a gradual,
+        # probabilistic planning budget.
+        self.dyna_planning_strategy = 'state_gate'
+        self.dyna_bellman_beta = 2.0
+        self.dyna_bellman_denom_floor = 1.0
+        self.dyna_plan_probability_max = 0.25
+        self.dyna_plan_ramp_steps = 8_000
+        self.dyna_model_update_lr_scale = 0.10
         # ee_ratio: received data + weighted RBS forwarding (historical default)
         # paper_xi: RBS-delivered data / total UAV energy (paper objective)
         # additive: throughput - communication energy (legacy ablation)

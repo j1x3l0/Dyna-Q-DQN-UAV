@@ -1,6 +1,7 @@
 import logging
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import os
@@ -145,8 +146,21 @@ class HierarchicalAgent:
         self.dyna_model_fraction = float(getattr(config, 'dyna_model_fraction', 0.25))
         self.dyna_model_error_threshold = float(getattr(config, 'dyna_model_error_threshold', 0.20))
         self.dyna_counterfactual_fraction = float(getattr(config, 'dyna_counterfactual_fraction', 0.25))
+        self.dyna_planning_strategy = getattr(config, 'dyna_planning_strategy', 'state_gate')
+        if self.dyna_planning_strategy not in ('state_gate', 'bcad'):
+            raise ValueError(f"Unsupported dyna_planning_strategy: {self.dyna_planning_strategy}")
+        self.dyna_bellman_beta = max(0.0, float(getattr(config, 'dyna_bellman_beta', 2.0)))
+        self.dyna_bellman_denom_floor = max(
+            1e-6, float(getattr(config, 'dyna_bellman_denom_floor', 1.0)))
+        self.dyna_plan_probability_max = float(np.clip(
+            getattr(config, 'dyna_plan_probability_max', 0.25), 0.0, 1.0))
+        self.dyna_plan_ramp_steps = max(1, int(getattr(config, 'dyna_plan_ramp_steps', 8_000)))
+        self.dyna_model_update_lr_scale = float(np.clip(
+            getattr(config, 'dyna_model_update_lr_scale', 0.10), 0.0, 1.0))
         self.real_steps = np.zeros(num_agents, dtype=np.int64)
         self.model_error_ema = np.full(num_agents, np.inf, dtype=float)
+        self.bellman_error_ema = np.full(num_agents, np.inf, dtype=float)
+        self.last_plan_info = [None for _ in range(num_agents)]
         # Replay-1 (attribution) planning mode:
         #   'model'  — use the learned world model for the extra single-sample
         #              Q-update (DynaQ-1, historical default).
@@ -248,7 +262,9 @@ class HierarchicalAgent:
         logger.info(f"Lower memory capacity: {self.lower_memory[0].maxlen} per agent")
         logger.info(f"gamma={self.gamma}, tau={self.tau}, batch_size={self.batch_size}, epsilon={self.epsilon}, epsilon_mode={self.epsilon_mode}")
         logger.info(f"epsilon_min={self.epsilon_min}, epsilon_decay={self.epsilon_decay}, clip_norm={self.clip_norm}")
-        logger.info(f"dyna_k={self.dyna_k}, dyna_warmup={self.dyna_warmup}")
+        logger.info(
+            f"dyna_k={self.dyna_k}, dyna_warmup={self.dyna_warmup}, "
+            f"planning_strategy={self.dyna_planning_strategy}")
         logger.info("=" * 60)
         logger.info("HierarchicalAgent initialization complete!")
         logger.info("=" * 60)
@@ -520,6 +536,7 @@ class HierarchicalAgent:
         actions_batch = []
         rewards_batch = []
         next_states_batch = []
+        dones_batch = []
         
         for idx in batch:
             s, a, r, ns, d = self.lower_memory[agent_idx][idx]
@@ -527,16 +544,19 @@ class HierarchicalAgent:
             actions_batch.append(a)
             rewards_batch.append(r)
             next_states_batch.append(ns)
+            dones_batch.append(d)
         
         states_batch = torch.FloatTensor(np.array(states_batch)).to(self.device)
         actions_batch = torch.FloatTensor(np.array(actions_batch)).to(self.device)
         rewards_batch = torch.FloatTensor(np.array(rewards_batch)).unsqueeze(1).to(self.device)
         next_states_batch = torch.FloatTensor(np.array(next_states_batch)).to(self.device)
+        dones_batch = torch.FloatTensor(np.array(dones_batch)).to(self.device)
         split = max(1, int(0.8 * states_batch.shape[0]))
         train_states, val_states = states_batch[:split], states_batch[split:]
         train_actions, val_actions = actions_batch[:split], actions_batch[split:]
         train_rewards, val_rewards = rewards_batch[:split], rewards_batch[split:]
         train_next_states, val_next_states = next_states_batch[:split], next_states_batch[split:]
+        val_dones = dones_batch[split:]
 
         self.models[agent_idx].train()
         reward_pred, next_state_pred = self.models[agent_idx](train_states, train_actions)
@@ -547,15 +567,34 @@ class HierarchicalAgent:
         total_loss = reward_loss + state_loss
         self.models[agent_idx].eval()
         with torch.no_grad():
-            _, val_next_pred = self.models[agent_idx](val_states, val_actions)
+            val_reward_pred, val_next_pred = self.models[agent_idx](val_states, val_actions)
             validation_error = (
                 (val_next_pred - val_next_states) / self.models[agent_idx].state_scale
             ).abs().mean()
+            true_next_q = self.target_lower_dqns[agent_idx](val_next_states).view(
+                val_next_states.shape[0], self.config.M, 3)
+            model_next_q = self.target_lower_dqns[agent_idx](val_next_pred).view(
+                val_next_pred.shape[0], self.config.M, 3)
+            true_masks = _lower_action_masks_from_states(val_next_states, self.config)
+            model_masks = _lower_action_masks_from_states(val_next_pred, self.config)
+            true_next_q = true_next_q.masked_fill(~true_masks, -torch.inf).max(dim=2).values
+            model_next_q = model_next_q.masked_fill(~model_masks, -torch.inf).max(dim=2).values
+            true_targets = val_rewards + self.gamma * true_next_q * (1 - val_dones.unsqueeze(1))
+            model_targets = val_reward_pred + self.gamma * model_next_q * (1 - val_dones.unsqueeze(1))
+            bellman_error = (
+                (model_targets - true_targets).abs()
+                / (true_targets.abs() + self.dyna_bellman_denom_floor)
+            ).mean()
         normalized_mae = float(validation_error.item())
+        normalized_bellman_error = float(bellman_error.item())
         previous = self.model_error_ema[agent_idx]
         self.model_error_ema[agent_idx] = (
             normalized_mae if not np.isfinite(previous)
             else 0.95 * previous + 0.05 * normalized_mae)
+        previous_bellman = self.bellman_error_ema[agent_idx]
+        self.bellman_error_ema[agent_idx] = (
+            normalized_bellman_error if not np.isfinite(previous_bellman)
+            else 0.95 * previous_bellman + 0.05 * normalized_bellman_error)
         
         logger.debug(f"Model {agent_idx} loss: reward_loss={reward_loss.item():.6f}, state_loss={state_loss.item():.6f}, total_loss={total_loss.item():.6f}")
         
@@ -569,6 +608,8 @@ class HierarchicalAgent:
             'total_loss': float(total_loss.item()),
             'normalized_state_mae': normalized_mae,
             'normalized_state_mae_ema': float(self.model_error_ema[agent_idx]),
+            'bellman_error': normalized_bellman_error,
+            'bellman_error_ema': float(self.bellman_error_ema[agent_idx]),
         }
     
     def _dyna_plan_batch(self, agent_idx, k):
@@ -585,7 +626,9 @@ class HierarchicalAgent:
         dones = np.asarray([x[4] for x in samples], dtype=np.float32)
         counterfactual = np.zeros(batch_size, dtype=bool)
 
-        if self.planning_mode == 'model' and self.dyna_counterfactual_fraction > 0:
+        if (self.planning_mode == 'model'
+                and self.dyna_planning_strategy != 'bcad'
+                and self.dyna_counterfactual_fraction > 0):
             with torch.no_grad():
                 q_np = self.lower_dqns[agent_idx](
                     torch.as_tensor(states, device=self.device)).cpu().numpy()
@@ -635,15 +678,63 @@ class HierarchicalAgent:
             next_masks = _lower_action_masks_from_states(next_t, self.config)
             next_q = next_q_all.masked_fill(~next_masks, -torch.inf).max(dim=2).values
             targets = reward_t.unsqueeze(1) + self.gamma * next_q * (1 - done_t.unsqueeze(1))
-        loss = nn.SmoothL1Loss()(chosen_q, targets)
+
+        plan_bellman_error = None
+        plan_sample_weight = 1.0
+        if self.dyna_planning_strategy == 'bcad' and self.planning_mode == 'model':
+            true_next_t = torch.as_tensor(true_next, device=self.device)
+            true_reward_t = torch.as_tensor(true_rewards, device=self.device)
+            with torch.no_grad():
+                true_next_q_all = self.target_lower_dqns[agent_idx](true_next_t).view(
+                    batch_size, self.config.M, 3)
+                true_masks = _lower_action_masks_from_states(true_next_t, self.config)
+                true_next_q = true_next_q_all.masked_fill(
+                    ~true_masks, -torch.inf).max(dim=2).values
+                true_targets = true_reward_t.unsqueeze(1) + self.gamma * true_next_q * (
+                    1 - done_t.unsqueeze(1))
+                target_error = (
+                    (targets - true_targets).abs()
+                    / (true_targets.abs() + self.dyna_bellman_denom_floor))
+                sample_weights = torch.exp(-self.dyna_bellman_beta * target_error).clamp_min(1e-3)
+            element_loss = F.smooth_l1_loss(chosen_q, targets, reduction='none')
+            loss = (element_loss * sample_weights).sum() / sample_weights.sum().clamp_min(1e-6)
+            plan_bellman_error = float(target_error.mean().item())
+            plan_sample_weight = float(sample_weights.mean().item())
+        else:
+            loss = nn.SmoothL1Loss()(chosen_q, targets)
+
         self.lower_optimizers[agent_idx].zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.lower_dqns[agent_idx].parameters(), self.clip_norm)
-        self.lower_optimizers[agent_idx].step()
+        optimizer = self.lower_optimizers[agent_idx]
+        saved_lrs = [group['lr'] for group in optimizer.param_groups]
+        if self.dyna_planning_strategy == 'bcad':
+            for group, lr in zip(optimizer.param_groups, saved_lrs):
+                group['lr'] = lr * self.dyna_model_update_lr_scale
+        optimizer.step()
+        for group, lr in zip(optimizer.param_groups, saved_lrs):
+            group['lr'] = lr
         self.soft_update(self.lower_dqns[agent_idx], self.target_lower_dqns[agent_idx])
+        if self.last_plan_info[agent_idx] is not None:
+            self.last_plan_info[agent_idx].update({
+                'planned': 1.0,
+                'sample_weight': plan_sample_weight,
+                'sample_bellman_error': plan_bellman_error,
+                'loss': float(loss.item()),
+            })
         return float(loss.item())
 
     def dyna_plan(self, agent_idx, k=None):
+        self.last_plan_info[agent_idx] = {
+            'strategy': self.dyna_planning_strategy,
+            'eligible': 0.0,
+            'planned': 0.0,
+            'trust': 0.0,
+            'plan_probability': 0.0,
+            'sample_weight': None,
+            'sample_bellman_error': None,
+            'loss': None,
+        }
         if self.dyna_k <= 0 or not self.models:
             return
         if k is None:
@@ -661,9 +752,30 @@ class HierarchicalAgent:
 
         if self.real_steps[agent_idx] < self.dyna_warmup_steps:
             return
-        if (self.planning_mode == 'model'
-                and self.model_error_ema[agent_idx] > self.dyna_model_error_threshold):
-            return
+        self.last_plan_info[agent_idx]['eligible'] = 1.0
+        if self.planning_mode == 'model':
+            if self.dyna_planning_strategy == 'bcad':
+                error = self.bellman_error_ema[agent_idx]
+                if not np.isfinite(error):
+                    return
+                trust = float(np.exp(-self.dyna_bellman_beta * error))
+                ramp_progress = max(
+                    0, int(self.real_steps[agent_idx]) - self.dyna_warmup_steps + 1)
+                ramp = min(1.0, ramp_progress / self.dyna_plan_ramp_steps)
+                probability = self.dyna_plan_probability_max * ramp * trust
+                self.last_plan_info[agent_idx].update({
+                    'trust': trust,
+                    'plan_probability': probability,
+                })
+                if self.dyna_rng.random() >= probability:
+                    return
+            else:
+                if self.model_error_ema[agent_idx] > self.dyna_model_error_threshold:
+                    return
+                self.last_plan_info[agent_idx].update({
+                    'trust': 1.0,
+                    'plan_probability': 1.0,
+                })
         return self._dyna_plan_batch(agent_idx, k)
 
         logger.debug(f"dyna_plan({agent_idx}) called: k={k}, memory size={len(self.lower_memory[agent_idx])}")
@@ -781,6 +893,8 @@ class HierarchicalAgent:
             'epsilon': self.epsilon,
             'real_steps': self.real_steps.copy(),
             'model_error_ema': self.model_error_ema.copy(),
+            'bellman_error_ema': self.bellman_error_ema.copy(),
+            'dyna_planning_strategy': self.dyna_planning_strategy,
             'upper_actors': {i: self.upper_actors[i].state_dict() for i in range(self.num_agents)},
             'target_upper_actors': {i: self.target_upper_actors[i].state_dict() for i in range(self.num_agents)},
             'upper_critics': {i: self.upper_critics[i].state_dict() for i in range(self.num_agents)},
@@ -825,6 +939,8 @@ class HierarchicalAgent:
         self.real_steps = np.asarray(checkpoint.get('real_steps', self.real_steps), dtype=np.int64)
         self.model_error_ema = np.asarray(
             checkpoint.get('model_error_ema', self.model_error_ema), dtype=float)
+        self.bellman_error_ema = np.asarray(
+            checkpoint.get('bellman_error_ema', self.bellman_error_ema), dtype=float)
         logger.info(f"Checkpoint loaded from {filepath} (episode {checkpoint['episode']}, epsilon={self.epsilon:.4f})")
         return checkpoint['episode']
 
