@@ -94,9 +94,9 @@ class MATD3Agent:
         self.replay_rng = config.rngs['replay']
 
         # TD3-specific parameters
-        self.policy_delay = 2
-        self.target_noise = 0.2
-        self.noise_clip = 0.5
+        self.policy_delay = getattr(config, 'matd3_policy_delay', 2)
+        self.target_noise = getattr(config, 'matd3_target_noise', 0.2)
+        self.noise_clip = getattr(config, 'matd3_noise_clip', 0.5)
         self._update_counter = 0
 
         # Actors
@@ -118,18 +118,20 @@ class MATD3Agent:
             self.target_critics_A[i].load_state_dict(self.critics_A[i].state_dict())
             self.target_critics_B[i].load_state_dict(self.critics_B[i].state_dict())
 
-        self.actor_optimizers = [optim.Adam(self.actors[i].parameters(), lr=1e-3)
+        actor_lr = getattr(config, 'matd3_actor_lr', 1e-3)
+        critic_lr = getattr(config, 'matd3_critic_lr', 1e-4)
+        self.actor_optimizers = [optim.Adam(self.actors[i].parameters(), lr=actor_lr)
                                  for i in range(num_agents)]
-        self.critic_A_optimizers = [optim.Adam(self.critics_A[i].parameters(), lr=1e-4)
+        self.critic_A_optimizers = [optim.Adam(self.critics_A[i].parameters(), lr=critic_lr)
                                     for i in range(num_agents)]
-        self.critic_B_optimizers = [optim.Adam(self.critics_B[i].parameters(), lr=1e-4)
+        self.critic_B_optimizers = [optim.Adam(self.critics_B[i].parameters(), lr=critic_lr)
                                     for i in range(num_agents)]
         self.actor_schedulers = [optim.lr_scheduler.StepLR(self.actor_optimizers[i], step_size=500, gamma=0.9)
                                  for i in range(num_agents)]
 
         self.memory = deque(maxlen=10000)
         self.gamma = 0.95
-        self.tau = 0.005  # Slower soft update (TD3 uses slower tau)
+        self.tau = getattr(config, 'matd3_tau', 0.005)
         self.batch_size = 32
         self.clip_norm = 1.0
 
@@ -140,13 +142,22 @@ class MATD3Agent:
         actions = []
         for i in range(self.num_agents):
             state = torch.FloatTensor(states[i]).unsqueeze(0).to(self.device)
-            action = self.actors[i](state).detach().cpu().numpy()[0]
+            action = self._actor_action(self.actors[i](state)).detach().cpu().numpy()[0]
             if noise:
                 action += self.action_rng.normal(0, 0.1, size=action.shape)
             action[:4] = np.clip(action[:4], -1, 1)
             action[4:] = np.clip(action[4:], 0, 1)
             actions.append(action)
         return np.array(actions)
+
+    @staticmethod
+    def _actor_action(raw_action):
+        """Map tanh output to the environment's mixed action bounds."""
+        return torch.cat((raw_action[..., :4], (raw_action[..., 4:] + 1.0) / 2.0), dim=-1)
+
+    @staticmethod
+    def _clip_action(action):
+        return torch.cat((action[..., :4].clamp(-1, 1), action[..., 4:].clamp(0, 1)), dim=-1)
 
     def add_memory(self, states, actions, rewards, next_states, dones):
         self.memory.append((states, actions, rewards, next_states, dones))
@@ -158,10 +169,10 @@ class MATD3Agent:
             next_actions = []
             for j in range(self.num_agents):
                 ns_j = next_states_batch[:, j]
-                act = self.target_actors[j](ns_j)
+                act = self._actor_action(self.target_actors[j](ns_j))
                 noise = torch.randn_like(act) * self.target_noise
                 noise = torch.clamp(noise, -self.noise_clip, self.noise_clip)
-                act = torch.clamp(act + noise, -1, 1)
+                act = self._clip_action(act + noise)
                 next_actions.append(act)
             next_actions = torch.cat(next_actions, dim=1)
 
@@ -217,7 +228,7 @@ class MATD3Agent:
                 cur_actions = []
                 for j in range(self.num_agents):
                     if j == i:
-                        cur_actions.append(self.actors[j](states_b[:, j]))
+                        cur_actions.append(self._actor_action(self.actors[j](states_b[:, j])))
                     else:
                         cur_actions.append(actions_b[:, j].detach())
                 cur_actions = torch.cat(cur_actions, dim=1)
