@@ -1,0 +1,181 @@
+2026-08-05 10:22:24,321 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Starting Hierarchical (Dyna-Q) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 10:22:24,353 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Starting Hierarchical (NoDyna) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 10:22:24,386 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Starting Hierarchical (Dyna-Q) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 10:22:36,228 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:22:39,618 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:22:40,079 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:24:54,122 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Ep    10 | avg_r(last_11)=   -251.51 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:25:33,967 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Ep    10 | avg_r(last_11)=   -251.51 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:25:35,690 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Ep    10 | avg_r(last_11)=   -251.51 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:27:12,710 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Ep    20 | avg_r(last_21)=   -108.68 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:28:30,891 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Ep    20 | avg_r(last_21)=   -108.68 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:28:32,959 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Ep    20 | avg_r(last_21)=   -108.68 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:29:31,610 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Ep    30 | avg_r(last_31)=    -59.84 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:31:28,137 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Ep    30 | avg_r(last_31)=    -59.84 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:31:29,099 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Ep    30 | avg_r(last_31)=    -59.84 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:31:50,587 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Ep    40 | avg_r(last_41)=    -45.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:34:24,563 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Ep    40 | avg_r(last_41)=    -45.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:34:29,204 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Ep    40 | avg_r(last_41)=    -45.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:45:36,342 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Ep   100 | avg_r(last_50)=     69.54 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:52:17,267 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Ep   100 | avg_r(last_50)=     69.54 | best_ra=      -inf, eps=0.0500
+2026-08-05 10:52:19,211 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Ep   100 | avg_r(last_50)=     69.54 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:08:22,338 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed42 - INFO - Hierarchical (NoDyna) seed=42 completed: 200 episodes, duration=2757.9s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_dc_seed42: completed, episodes=200, last50=55.587
+2026-08-05 11:08:22,448 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Starting Hierarchical (Dyna-Q) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 11:08:37,737 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:11:38,466 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Ep    10 | avg_r(last_11)=   -251.51 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:14:41,309 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Ep    20 | avg_r(last_21)=   -108.68 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:17:40,154 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Ep    30 | avg_r(last_31)=    -59.84 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:20:38,506 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Ep    40 | avg_r(last_41)=    -45.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:22:11,260 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed42 - INFO - Hierarchical (Dyna-Q) seed=42 completed: 200 episodes, duration=3586.9s, stopped_early=False, reason=reached max_episodes (200)
+dc_rbd_seed42: completed, episodes=200, last50=57.272
+2026-08-05 11:22:11,358 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Starting Hierarchical (NoDyna) | seed=123 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 11:22:24,121 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Ep     0 | avg_r(last_1)=    122.49 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:22:30,118 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed42 - INFO - Hierarchical (Dyna-Q) seed=42 completed: 200 episodes, duration=3605.7s, stopped_early=False, reason=reached max_episodes (200)
+dc_rad_seed42: completed, episodes=200, last50=58.559
+2026-08-05 11:22:30,230 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Starting Hierarchical (Dyna-Q) | seed=123 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 11:22:45,189 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Ep     0 | avg_r(last_1)=    122.49 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:24:45,540 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Ep    10 | avg_r(last_11)=     57.47 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:25:46,728 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Ep    10 | avg_r(last_11)=     57.47 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:27:06,532 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Ep    20 | avg_r(last_21)=     47.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:28:48,922 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Ep    20 | avg_r(last_21)=     47.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:29:27,654 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Ep    30 | avg_r(last_31)=     38.64 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:31:46,857 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Ep    40 | avg_r(last_41)=     52.19 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:31:47,564 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Ep    30 | avg_r(last_31)=     38.64 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:34:47,756 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Ep    40 | avg_r(last_41)=     52.19 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:38:39,821 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Ep   100 | avg_r(last_50)=     69.54 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:45:32,229 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Ep   100 | avg_r(last_50)=     81.61 | best_ra=      -inf, eps=0.0500
+2026-08-05 11:52:39,261 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Ep   100 | avg_r(last_50)=     81.61 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:08:22,482 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed123 - INFO - Hierarchical (NoDyna) seed=123 completed: 200 episodes, duration=2771.1s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_dc_seed123: completed, episodes=200, last50=88.304
+2026-08-05 12:08:22,597 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Starting Hierarchical (Dyna-Q) | seed=123 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 12:08:38,386 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Ep     0 | avg_r(last_1)=    122.49 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:08:54,532 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed42 - INFO - Hierarchical (Dyna-Q) seed=42 completed: 200 episodes, duration=3632.0s, stopped_early=False, reason=reached max_episodes (200)
+dc_upd_seed42: completed, episodes=200, last50=56.011
+2026-08-05 12:08:54,639 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Starting Hierarchical (Dyna-Q) | seed=123 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 12:09:09,651 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Ep     0 | avg_r(last_1)=    122.49 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:11:39,422 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Ep    10 | avg_r(last_11)=     57.47 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:12:09,542 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Ep    10 | avg_r(last_11)=     57.47 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:14:40,941 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Ep    20 | avg_r(last_21)=     47.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:15:09,468 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Ep    20 | avg_r(last_21)=     47.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:17:40,806 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Ep    30 | avg_r(last_31)=     38.64 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:18:10,074 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Ep    30 | avg_r(last_31)=     38.64 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:20:38,464 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Ep    40 | avg_r(last_41)=     52.19 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:21:09,048 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Ep    40 | avg_r(last_41)=     52.19 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:22:29,828 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed123 - INFO - Hierarchical (Dyna-Q) seed=123 completed: 200 episodes, duration=3599.6s, stopped_early=False, reason=reached max_episodes (200)
+dc_rbd_seed123: completed, episodes=200, last50=88.449
+2026-08-05 12:22:29,929 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Starting Hierarchical (NoDyna) | seed=2026 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 12:22:41,611 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:25:01,578 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Ep    10 | avg_r(last_11)=     78.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:27:21,194 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Ep    20 | avg_r(last_21)=     82.18 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:29:37,570 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Ep    30 | avg_r(last_31)=   -145.52 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:31:57,181 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Ep    40 | avg_r(last_41)=    -78.78 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:38:33,540 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Ep   100 | avg_r(last_50)=     81.61 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:39:09,863 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Ep   100 | avg_r(last_50)=     81.61 | best_ra=      -inf, eps=0.0500
+2026-08-05 12:45:45,604 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Ep   100 | avg_r(last_50)=     98.37 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:08:31,683 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed2026 - INFO - Hierarchical (NoDyna) seed=2026 completed: 200 episodes, duration=2761.7s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_dc_seed2026: completed, episodes=200, last50=113.618
+2026-08-05 13:08:31,794 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Starting Hierarchical (Dyna-Q) | seed=2026 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 13:08:45,638 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed123 - INFO - Hierarchical (Dyna-Q) seed=123 completed: 200 episodes, duration=3623.0s, stopped_early=False, reason=reached max_episodes (200)
+dc_rad_seed123: completed, episodes=200, last50=88.189
+2026-08-05 13:08:45,746 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Starting Hierarchical (Dyna-Q) | seed=2026 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 13:08:47,350 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:09:02,076 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:09:23,099 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed123 - INFO - Hierarchical (Dyna-Q) seed=123 completed: 200 episodes, duration=3628.4s, stopped_early=False, reason=reached max_episodes (200)
+dc_upd_seed123: completed, episodes=200, last50=88.452
+2026-08-05 13:09:23,212 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Starting Hierarchical (Dyna-Q) | seed=2026 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 13:09:38,607 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:11:46,624 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Ep    10 | avg_r(last_11)=     78.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:12:01,665 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Ep    10 | avg_r(last_11)=     78.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:12:39,980 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Ep    10 | avg_r(last_11)=     78.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:14:45,550 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Ep    20 | avg_r(last_21)=     82.18 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:15:00,213 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Ep    20 | avg_r(last_21)=     82.18 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:15:43,394 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Ep    20 | avg_r(last_21)=     82.18 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:17:42,768 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Ep    30 | avg_r(last_31)=   -145.52 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:18:04,945 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Ep    30 | avg_r(last_31)=   -145.52 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:18:41,875 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Ep    30 | avg_r(last_31)=   -145.52 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:20:39,732 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Ep    40 | avg_r(last_41)=    -78.78 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:21:03,897 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Ep    40 | avg_r(last_41)=    -78.78 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:21:40,346 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Ep    40 | avg_r(last_41)=    -78.78 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:38:48,418 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Ep   100 | avg_r(last_50)=     98.37 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:39:06,972 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Ep   100 | avg_r(last_50)=     98.37 | best_ra=      -inf, eps=0.0500
+2026-08-05 13:39:43,105 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Ep   100 | avg_r(last_50)=     98.37 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:08:58,695 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed2026 - INFO - Hierarchical (Dyna-Q) seed=2026 completed: 200 episodes, duration=3626.9s, stopped_early=False, reason=reached max_episodes (200)
+dc_rbd_seed2026: completed, episodes=200, last50=113.668
+2026-08-05 14:08:58,791 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Starting Hierarchical (NoDyna) | seed=3407 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 14:09:10,044 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:09:12,286 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed2026 - INFO - Hierarchical (Dyna-Q) seed=2026 completed: 200 episodes, duration=3626.5s, stopped_early=False, reason=reached max_episodes (200)
+dc_rad_seed2026: completed, episodes=200, last50=113.896
+2026-08-05 14:09:12,396 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Starting Hierarchical (Dyna-Q) | seed=3407 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 14:09:27,239 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:09:34,976 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed2026 - INFO - Hierarchical (Dyna-Q) seed=2026 completed: 200 episodes, duration=3611.7s, stopped_early=False, reason=reached max_episodes (200)
+dc_upd_seed2026: completed, episodes=200, last50=113.809
+2026-08-05 14:09:35,076 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Starting Hierarchical (Dyna-Q) | seed=3407 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 14:09:50,286 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:11:30,818 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Ep    10 | avg_r(last_11)=  -2014.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:12:23,063 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Ep    10 | avg_r(last_11)=  -2014.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:12:48,066 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Ep    10 | avg_r(last_11)=  -2014.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:13:50,596 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Ep    20 | avg_r(last_21)=  -1874.15 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:15:22,222 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Ep    20 | avg_r(last_21)=  -1874.15 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:15:44,357 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Ep    20 | avg_r(last_21)=  -1874.15 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:16:08,447 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Ep    30 | avg_r(last_31)=  -1300.75 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:18:20,791 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Ep    30 | avg_r(last_31)=  -1300.75 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:18:25,702 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Ep    40 | avg_r(last_41)=  -1800.39 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:18:44,989 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Ep    30 | avg_r(last_31)=  -1300.75 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:21:16,982 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Ep    40 | avg_r(last_41)=  -1800.39 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:21:40,408 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Ep    40 | avg_r(last_41)=  -1800.39 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:32:05,377 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Ep   100 | avg_r(last_50)=  -1379.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:39:00,518 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Ep   100 | avg_r(last_50)=  -1379.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:39:24,832 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Ep   100 | avg_r(last_50)=  -1379.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:54:34,028 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed3407 - INFO - Hierarchical (NoDyna) seed=3407 completed: 200 episodes, duration=2735.2s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_dc_seed3407: completed, episodes=200, last50=-864.831
+2026-08-05 14:54:34,143 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Starting Hierarchical (Dyna-Q) | seed=3407 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 14:54:49,896 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 14:57:46,943 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Ep    10 | avg_r(last_11)=  -2014.85 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:00:44,810 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Ep    20 | avg_r(last_21)=  -1874.15 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:03:40,460 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Ep    30 | avg_r(last_31)=  -1300.75 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:06:37,566 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Ep    40 | avg_r(last_41)=  -1800.39 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:08:28,123 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed3407 - INFO - Hierarchical (Dyna-Q) seed=3407 completed: 200 episodes, duration=3555.7s, stopped_early=False, reason=reached max_episodes (200)
+dc_rbd_seed3407: completed, episodes=200, last50=-495.721
+2026-08-05 15:08:28,219 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Starting Hierarchical (NoDyna) | seed=888 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 15:08:39,530 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Ep     0 | avg_r(last_1)=   -361.30 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:09:14,159 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed3407 - INFO - Hierarchical (Dyna-Q) seed=3407 completed: 200 episodes, duration=3579.0s, stopped_early=False, reason=reached max_episodes (200)
+dc_rad_seed3407: completed, episodes=200, last50=-413.399
+2026-08-05 15:09:14,268 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Starting Hierarchical (Dyna-Q) | seed=888 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 15:09:28,880 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Ep     0 | avg_r(last_1)=   -361.30 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:10:56,622 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Ep    10 | avg_r(last_11)=      0.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:12:24,042 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Ep    10 | avg_r(last_11)=      0.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:13:13,616 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Ep    20 | avg_r(last_21)=     21.36 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:15:23,262 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Ep    20 | avg_r(last_21)=     21.36 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:15:28,207 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Ep    30 | avg_r(last_31)=     33.69 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:17:45,031 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Ep    40 | avg_r(last_41)=     36.76 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:18:20,127 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Ep    30 | avg_r(last_31)=     33.69 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:21:16,720 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Ep    40 | avg_r(last_41)=     36.76 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:24:19,999 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Ep   100 | avg_r(last_50)=  -1379.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:31:17,546 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Ep   100 | avg_r(last_50)=     52.16 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:39:01,781 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Ep   100 | avg_r(last_50)=     52.16 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:53:49,619 - nodyna_paper_xi_dyna_redesign_nodyna_dc_seed888 - INFO - Hierarchical (NoDyna) seed=888 completed: 200 episodes, duration=2721.4s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_dc_seed888: completed, episodes=200, last50=69.108
+2026-08-05 15:53:49,721 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Starting Hierarchical (Dyna-Q) | seed=888 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 15:54:04,728 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Ep     0 | avg_r(last_1)=   -361.30 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:54:08,021 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed3407 - INFO - Hierarchical (Dyna-Q) seed=3407 completed: 200 episodes, duration=3573.8s, stopped_early=False, reason=reached max_episodes (200)
+dc_upd_seed3407: completed, episodes=200, last50=-420.635
+2026-08-05 15:54:08,126 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Starting Hierarchical (Dyna-Q) | seed=888 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 15:54:23,409 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Ep     0 | avg_r(last_1)=   -361.30 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:57:03,079 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Ep    10 | avg_r(last_11)=      0.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:57:21,182 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Ep    10 | avg_r(last_11)=      0.23 | best_ra=      -inf, eps=0.0500
+2026-08-05 15:59:59,938 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Ep    20 | avg_r(last_21)=     21.36 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:00:20,349 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Ep    20 | avg_r(last_21)=     21.36 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:02:56,406 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Ep    30 | avg_r(last_31)=     33.69 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:03:17,437 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Ep    30 | avg_r(last_31)=     33.69 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:05:52,631 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Ep    40 | avg_r(last_41)=     36.76 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:06:13,420 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Ep    40 | avg_r(last_41)=     36.76 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:08:41,133 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rbd_seed888 - INFO - Hierarchical (Dyna-Q) seed=888 completed: 200 episodes, duration=3566.8s, stopped_early=False, reason=reached max_episodes (200)
+dc_rbd_seed888: completed, episodes=200, last50=69.839
+2026-08-05 16:21:59,878 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Ep   100 | avg_r(last_50)=     52.16 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:22:19,540 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Ep   100 | avg_r(last_50)=     52.16 | best_ra=      -inf, eps=0.0500
+2026-08-05 16:47:41,617 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_rad_seed888 - INFO - Hierarchical (Dyna-Q) seed=888 completed: 200 episodes, duration=3231.9s, stopped_early=False, reason=reached max_episodes (200)
+dc_rad_seed888: completed, episodes=200, last50=69.433
+2026-08-05 16:48:05,739 - dyna_paper_xi_k1_ws25600_dyna_redesign_dc_upd_seed888 - INFO - Hierarchical (Dyna-Q) seed=888 completed: 200 episodes, duration=3237.6s, stopped_early=False, reason=reached max_episodes (200)
+dc_upd_seed888: completed, episodes=200, last50=69.219
+manifest=/root/uav_dyna_redesign_20260805_d10b93d/results/dyna_redesign_multiseed_20260805_102222/manifest.json
