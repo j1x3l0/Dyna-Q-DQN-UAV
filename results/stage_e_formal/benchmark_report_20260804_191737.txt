@@ -1,0 +1,70 @@
+================================================================================
+UAV DRL Full Benchmark Report
+================================================================================
+Generated: 2026-08-04 19:17:37
+Case: 1
+
+Algorithm configurations:
+  iDDPG: max_eps=8000, patience=1500, degradation=False
+  MADDPG: max_eps=8000, patience=1500, degradation=False
+  Hierarchical (NoDyna): max_eps=8000, patience=1500, degradation=False
+  Hierarchical (Dyna-Q): max_eps=8000, patience=1500, degradation=False
+  CoP-MADDPG: max_eps=8000, patience=1500, degradation=False
+  MATD3: max_eps=8000, patience=1500, degradation=False
+
+================================================================================
+Per-Run Results
+================================================================================
+Algo       Seed    Eps  EarlyStop    FinalReward  Duration(s) Reason
+--------------------------------------------------------------------
+cop_maddpg     42   3434       True         515.42      24084.9 convergence: no improvement (1.0%) in last 1500 episodes
+cop_maddpg    123   4803       True         787.86      33443.1 convergence: no improvement (1.0%) in last 1500 episodes
+cop_maddpg   2026   5028       True         447.41      34925.9 convergence: no improvement (1.0%) in last 1500 episodes
+cop_maddpg   3407   4729       True         549.40      32416.7 convergence: no improvement (1.0%) in last 1500 episodes
+cop_maddpg   8888   3351       True         292.90      23201.3 convergence: no improvement (1.0%) in last 1500 episodes
+matd3        42   5427       True         593.62      29481.4 convergence: no improvement (1.0%) in last 1500 episodes
+matd3       123   4120       True         581.47      22189.5 convergence: no improvement (1.0%) in last 1500 episodes
+matd3      2026   3114       True         475.32      16762.3 convergence: no improvement (1.0%) in last 1500 episodes
+matd3      3407   3194       True         391.32      17199.8 convergence: no improvement (1.0%) in last 1500 episodes
+matd3      8888   8000      False         448.53      42558.2 reached max_episodes (8000)
+
+================================================================================
+Aggregated Results (mean +- std over seeds)
+================================================================================
+
+--- CoP-MADDPG ---
+  Runs: 5, Early stopped: 5
+  Min episodes (aligned): 3351
+  Final reward (last 50): 519.14 +- 131.66 (95% CI: +-115.40)
+  Collision events/ep: 0.00 +- 0.01
+  Data received/ep: 539.78 +- 149.20
+  Data sent to RBS/ep: 288.92 +- 75.69
+  Energy consumed/ep: 56.87 +- 3.04
+  Duration (s): 29614.4 +- 5532.3
+  Convergence (eps to 90% peak): 1462 +- 1010
+  Early reward (first 500 eps): 352.44 +- 119.64
+
+--- MATD3 ---
+  Runs: 5, Early stopped: 4
+  Min episodes (aligned): 3114
+  Final reward (last 50): 536.75 +- 85.75 (95% CI: +-75.16)
+  Collision events/ep: 0.00 +- 0.00
+  Data received/ep: 536.59 +- 114.80
+  Data sent to RBS/ep: 288.23 +- 50.17
+  Energy consumed/ep: 54.61 +- 3.06
+  Duration (s): 25638.2 +- 10758.0
+  Convergence (eps to 90% peak): 2501 +- 1903
+  Early reward (first 500 eps): 294.93 +- 39.22
+
+================================================================================
+Cross-Algorithm Comparison
+================================================================================
+
+--- Final Reward Comparison ---
+  CoP-MADDPG vs MATD3: MATD3 better by 17.62 (3.3%)
+
+--- Sample Efficiency (Convergence Speed) ---
+  CoP-MADDPG (1462 eps) vs MATD3 (2501 eps): CoP-MADDPG converges 1.71x faster than MATD3
+
+--- Early Reward (first 500 eps) ---
+  CoP-MADDPG (352.44) vs MATD3 (294.93): CoP-MADDPG better by 57.52

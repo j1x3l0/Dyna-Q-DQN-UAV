@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-08-04T19:17:39.314538",
+  "commit": "bd067e0c907e57165e6d0a2897819c1cc4adc8ee",
+  "configs": {
+    "matd3": {
+      "matd3_actor_lr": 0.0001,
+      "matd3_critic_lr": 0.0001,
+      "matd3_target_noise": 0.1
+    },
+    "cop_maddpg": {
+      "cop_actor_lr": 0.0001,
+      "cop_critic_lr": 0.0001,
+      "cop_encoder_lr": 0.0001
+    }
+  },
+  "algos": [
+    "matd3",
+    "cop_maddpg"
+  ],
+  "seeds": [
+    42,
+    123,
+    2026,
+    3407,
+    8888
+  ],
+  "case": 1,
+  "reward_mode": "paper_xi",
+  "gpu_ids": [
+    1
+  ],
+  "workers": 3,
+  "run_tag_suffix": "_stagee_conservative",
+  "early_stop": {
+    "matd3": {
+      "max_episodes": 8000,
+      "early_stop_patience": 1500,
+      "early_stop_min_delta": 0.01,
+      "convergence_window": 500
+    },
+    "cop_maddpg": {
+      "max_episodes": 8000,
+      "early_stop_patience": 1500,
+      "early_stop_min_delta": 0.01,
+      "convergence_window": 500
+    }
+  },
+  "episodes_override": null,
+  "report_path": "/mnt/UAV/results/benchmark_report_20260804_191737.txt",
+  "json_path": "/mnt/UAV/results/benchmark_report_20260804_191737.json",
+  "failures": [],
+  "completed_runs": 10
+}
