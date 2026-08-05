@@ -1,0 +1,136 @@
+2026-08-05 04:28:51,474 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Starting Hierarchical (NoDyna) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 04:28:51,508 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Starting Hierarchical (Dyna-Q) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 04:28:51,636 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Starting Hierarchical (Dyna-Q) | seed=42 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 04:29:02,967 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:29:06,789 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:29:06,919 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Ep     0 | avg_r(last_1)=     11.22 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:31:14,951 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Ep    10 | avg_r(last_11)=   -141.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:31:59,493 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Ep    10 | avg_r(last_11)=   -141.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:31:59,608 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Ep    10 | avg_r(last_11)=   -141.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:33:27,176 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Ep    20 | avg_r(last_21)=    -43.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:34:53,745 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Ep    20 | avg_r(last_21)=    -43.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:34:54,190 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Ep    20 | avg_r(last_21)=    -43.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:35:39,446 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Ep    30 | avg_r(last_31)=      9.01 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:37:46,810 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Ep    30 | avg_r(last_31)=      9.01 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:37:48,837 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Ep    30 | avg_r(last_31)=      9.01 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:37:52,900 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Ep    40 | avg_r(last_41)=     21.14 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:40:40,587 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Ep    40 | avg_r(last_41)=     21.14 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:40:46,348 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Ep    40 | avg_r(last_41)=     21.14 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:51:04,668 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Ep   100 | avg_r(last_50)=     80.99 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:58:21,570 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Ep   100 | avg_r(last_50)=     80.99 | best_ra=      -inf, eps=0.0500
+2026-08-05 04:58:22,258 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Ep   100 | avg_r(last_50)=     80.99 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:12:57,527 - nodyna_paper_xi_bcad_screen_nodyna_seed42 - INFO - Hierarchical (NoDyna) seed=42 completed: 200 episodes, duration=2646.0s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_seed42: completed, episodes=200, last50=89.057
+2026-08-05 05:12:57,617 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Starting Hierarchical (NoDyna) | seed=123 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 05:13:08,995 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Ep     0 | avg_r(last_1)=    122.49 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:15:19,811 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Ep    10 | avg_r(last_11)=  -1007.11 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:17:30,559 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Ep    20 | avg_r(last_21)=  -1371.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:19:40,483 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Ep    30 | avg_r(last_31)=  -1733.98 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:21:52,704 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Ep    40 | avg_r(last_41)=  -2210.19 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:27:19,285 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed42 - INFO - Hierarchical (Dyna-Q) seed=42 completed: 200 episodes, duration=3507.7s, stopped_early=False, reason=reached max_episodes (200)
+bcad_seed42: completed, episodes=200, last50=89.269
+2026-08-05 05:27:19,383 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Starting Hierarchical (Dyna-Q) | seed=123 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 05:27:34,115 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Ep     0 | avg_r(last_1)=    122.49 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:30:26,326 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Ep    10 | avg_r(last_11)=  -1007.11 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:31:31,084 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed42 - INFO - Hierarchical (Dyna-Q) seed=42 completed: 200 episodes, duration=3759.4s, stopped_early=False, reason=reached max_episodes (200)
+dyna_current_seed42: completed, episodes=200, last50=79.875
+2026-08-05 05:31:31,179 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Starting Hierarchical (Dyna-Q) | seed=123 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 05:31:46,739 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Ep     0 | avg_r(last_1)=    122.49 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:33:20,262 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Ep    20 | avg_r(last_21)=  -1371.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:34:41,317 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Ep    10 | avg_r(last_11)=  -1007.11 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:35:12,261 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Ep   100 | avg_r(last_50)=  -1397.67 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:36:14,579 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Ep    30 | avg_r(last_31)=  -1733.98 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:37:35,264 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Ep    20 | avg_r(last_21)=  -1371.45 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:39:09,348 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Ep    40 | avg_r(last_41)=  -2210.19 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:40:29,786 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Ep    30 | avg_r(last_31)=  -1733.98 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:43:27,364 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Ep    40 | avg_r(last_41)=  -2210.19 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:56:45,370 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Ep   100 | avg_r(last_50)=  -1397.67 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:57:19,912 - nodyna_paper_xi_bcad_screen_nodyna_seed123 - INFO - Hierarchical (NoDyna) seed=123 completed: 200 episodes, duration=2662.3s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_seed123: completed, episodes=200, last50=-1951.050
+2026-08-05 05:57:19,995 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Starting Hierarchical (NoDyna) | seed=2026 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 05:57:31,163 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 05:59:43,685 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Ep    10 | avg_r(last_11)=   -740.62 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:00:58,759 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Ep   100 | avg_r(last_50)=  -1397.67 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:01:55,549 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Ep    20 | avg_r(last_21)=   -345.09 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:04:06,174 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Ep    30 | avg_r(last_31)=   -195.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:06:16,681 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Ep    40 | avg_r(last_41)=   -117.63 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:19:31,420 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Ep   100 | avg_r(last_50)=    -36.20 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:30:04,343 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed123 - INFO - Hierarchical (Dyna-Q) seed=123 completed: 200 episodes, duration=3764.9s, stopped_early=False, reason=reached max_episodes (200)
+dyna_current_seed123: completed, episodes=200, last50=-1916.619
+2026-08-05 06:30:04,439 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Starting Hierarchical (Dyna-Q) | seed=2026 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 06:30:06,764 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed123 - INFO - Hierarchical (Dyna-Q) seed=123 completed: 200 episodes, duration=3515.5s, stopped_early=False, reason=reached max_episodes (200)
+bcad_seed123: completed, episodes=200, last50=-1898.495
+2026-08-05 06:30:06,857 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Starting Hierarchical (Dyna-Q) | seed=2026 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 06:30:20,012 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:30:21,649 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:33:15,005 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Ep    10 | avg_r(last_11)=   -740.62 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:33:16,541 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Ep    10 | avg_r(last_11)=   -740.62 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:36:09,746 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Ep    20 | avg_r(last_21)=   -345.09 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:36:10,921 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Ep    20 | avg_r(last_21)=   -345.09 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:39:05,993 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Ep    30 | avg_r(last_31)=   -195.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:39:07,190 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Ep    30 | avg_r(last_31)=   -195.92 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:41:20,900 - nodyna_paper_xi_bcad_screen_nodyna_seed2026 - INFO - Hierarchical (NoDyna) seed=2026 completed: 200 episodes, duration=2640.9s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_seed2026: completed, episodes=200, last50=110.266
+2026-08-05 06:41:20,984 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Starting Hierarchical (NoDyna) | seed=3407 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 06:41:32,340 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:42:01,971 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Ep    40 | avg_r(last_41)=   -117.63 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:42:03,789 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Ep    40 | avg_r(last_41)=   -117.63 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:43:41,361 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Ep    10 | avg_r(last_11)=  -2019.64 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:45:52,580 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Ep    20 | avg_r(last_21)=  -1862.18 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:48:07,632 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Ep    30 | avg_r(last_31)=  -1314.58 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:50:19,479 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Ep    40 | avg_r(last_41)=  -2179.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:59:37,556 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Ep   100 | avg_r(last_50)=    -36.20 | best_ra=      -inf, eps=0.0500
+2026-08-05 06:59:42,866 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Ep   100 | avg_r(last_50)=    -36.20 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:03:38,405 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Ep   100 | avg_r(last_50)=  -1446.50 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:25:39,609 - nodyna_paper_xi_bcad_screen_nodyna_seed3407 - INFO - Hierarchical (NoDyna) seed=3407 completed: 200 episodes, duration=2658.6s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_seed3407: completed, episodes=200, last50=-435.241
+2026-08-05 07:25:39,710 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Starting Hierarchical (Dyna-Q) | seed=3407 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 07:25:54,880 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:28:35,594 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed2026 - INFO - Hierarchical (Dyna-Q) seed=2026 completed: 200 episodes, duration=3508.7s, stopped_early=False, reason=reached max_episodes (200)
+bcad_seed2026: completed, episodes=200, last50=115.020
+2026-08-05 07:28:35,699 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Starting Hierarchical (Dyna-Q) | seed=3407 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 07:28:47,161 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Ep    10 | avg_r(last_11)=  -2019.64 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:28:50,915 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Ep     0 | avg_r(last_1)=      0.00 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:31:42,164 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Ep    20 | avg_r(last_21)=  -1862.18 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:31:45,748 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Ep    10 | avg_r(last_11)=  -2019.64 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:32:58,448 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed2026 - INFO - Hierarchical (Dyna-Q) seed=2026 completed: 200 episodes, duration=3774.0s, stopped_early=False, reason=reached max_episodes (200)
+dyna_current_seed2026: completed, episodes=200, last50=107.062
+2026-08-05 07:32:58,528 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Starting Hierarchical (NoDyna) | seed=888 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 07:33:10,064 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Ep     0 | avg_r(last_1)=   -361.30 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:34:37,186 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Ep    30 | avg_r(last_31)=  -1314.58 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:34:40,213 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Ep    20 | avg_r(last_21)=  -1862.18 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:35:22,325 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Ep    10 | avg_r(last_11)=     -1.09 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:37:31,882 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Ep    40 | avg_r(last_41)=  -2179.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:37:33,017 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Ep    30 | avg_r(last_31)=  -1314.58 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:37:35,303 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Ep    20 | avg_r(last_21)=     28.70 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:39:49,048 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Ep    30 | avg_r(last_31)=     45.93 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:40:30,791 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Ep    40 | avg_r(last_41)=  -2179.87 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:42:01,110 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Ep    40 | avg_r(last_41)=     49.68 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:54:56,412 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Ep   100 | avg_r(last_50)=  -1446.50 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:55:26,493 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Ep   100 | avg_r(last_50)=     74.50 | best_ra=      -inf, eps=0.0500
+2026-08-05 07:58:05,814 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Ep   100 | avg_r(last_50)=  -1446.50 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:17:22,658 - nodyna_paper_xi_bcad_screen_nodyna_seed888 - INFO - Hierarchical (NoDyna) seed=888 completed: 200 episodes, duration=2664.1s, stopped_early=False, reason=reached max_episodes (200)
+nodyna_seed888: completed, episodes=200, last50=-614.731
+2026-08-05 08:17:22,756 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Starting Hierarchical (Dyna-Q) | seed=888 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 08:17:37,434 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Ep     0 | avg_r(last_1)=   -361.30 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:20:33,538 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Ep    10 | avg_r(last_11)=     -1.09 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:23:26,525 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Ep    20 | avg_r(last_21)=     28.70 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:26:21,271 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Ep    30 | avg_r(last_31)=     45.93 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:27:03,210 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed3407 - INFO - Hierarchical (Dyna-Q) seed=3407 completed: 200 episodes, duration=3507.5s, stopped_early=False, reason=reached max_episodes (200)
+bcad_seed3407: completed, episodes=200, last50=-481.018
+2026-08-05 08:27:03,307 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Starting Hierarchical (Dyna-Q) | seed=888 | reward_mode=paper_xi | max_episodes=200 | early_stop_patience=1500
+2026-08-05 08:27:18,418 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Ep     0 | avg_r(last_1)=   -361.30 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:28:05,335 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed3407 - INFO - Hierarchical (Dyna-Q) seed=3407 completed: 200 episodes, duration=3745.6s, stopped_early=False, reason=reached max_episodes (200)
+dyna_current_seed3407: completed, episodes=200, last50=-268.739
+2026-08-05 08:29:07,745 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Ep    40 | avg_r(last_41)=     49.68 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:30:00,492 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Ep    10 | avg_r(last_11)=     -1.09 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:32:37,029 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Ep    20 | avg_r(last_21)=     28.70 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:35:13,039 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Ep    30 | avg_r(last_31)=     45.93 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:37:53,760 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Ep    40 | avg_r(last_41)=     49.68 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:44:48,909 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Ep   100 | avg_r(last_50)=     74.50 | best_ra=      -inf, eps=0.0500
+2026-08-05 08:53:41,369 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Ep   100 | avg_r(last_50)=     74.50 | best_ra=      -inf, eps=0.0500
+2026-08-05 09:14:44,040 - dyna_paper_xi_k1_ws25600_bcad_screen_dyna_current_seed888 - INFO - Hierarchical (Dyna-Q) seed=888 completed: 200 episodes, duration=3441.2s, stopped_early=False, reason=reached max_episodes (200)
+dyna_current_seed888: completed, episodes=200, last50=90.177
+2026-08-05 09:18:19,088 - dyna_paper_xi_k1_ws25600_bcad_screen_bcad_seed888 - INFO - Hierarchical (Dyna-Q) seed=888 completed: 200 episodes, duration=3075.7s, stopped_early=False, reason=reached max_episodes (200)
+bcad_seed888: completed, episodes=200, last50=88.837
+manifest=/root/uav_bcad_20260805_881334e/results/bcad_multiseed_20260805_042850/manifest.json
