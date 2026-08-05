@@ -308,6 +308,10 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
 
     start_time = time.time()
 
+    lower_transition_mode = getattr(config, 'lower_transition_mode', 'legacy')
+    if lower_transition_mode not in ('legacy', 'decision_point'):
+        raise ValueError(f'Unsupported lower_transition_mode: {lower_transition_mode}')
+
     for episode in range(max_eps):
         states = env.reset(case)
         episode_reward = 0.0
@@ -316,12 +320,43 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         episode_plan_losses = []
         episode_plan_infos = []
         episode_plan_calls = 0
+        pending_lower = None
+
+        def train_lower_transition(agent_idx, state, action, reward, next_state, terminal):
+            nonlocal episode_plan_calls
+            agent.add_lower_memory(
+                agent_idx, state, action, reward, next_state, terminal)
+            agent.update_lower(agent_idx)
+            if algo != 'dyna':
+                return
+            model_stats = agent.update_model(agent_idx)
+            if model_stats is not None:
+                episode_model_losses.append(model_stats)
+            plan_loss = agent.dyna_plan(agent_idx)
+            episode_plan_calls += 1
+            plan_info = agent.last_plan_info[agent_idx]
+            if plan_info is not None:
+                episode_plan_infos.append(dict(plan_info))
+            if plan_loss is not None:
+                episode_plan_losses.append(plan_loss)
 
         while True:
             if is_hierarchical(algo):
                 # Hierarchical action selection
                 upper_actions = agent.upper_act(states)
                 lower_states = env.prepare_step(upper_actions)
+
+                # The lower controller acts on the post-move state.  Its true
+                # successor is therefore the next post-move state, not the
+                # pre-upper state returned by the previous complete_step.
+                if lower_transition_mode == 'decision_point' and pending_lower is not None:
+                    for i in range(config.N):
+                        prev_state, prev_action, prev_reward = pending_lower[i]
+                        train_lower_transition(
+                            i, prev_state, prev_action, prev_reward,
+                            lower_states[i], False)
+                    pending_lower = None
+
                 lower_actions = agent.lower_act(
                     lower_states, action_masks=env.get_lower_action_masks())
                 next_states, rewards, done = env.complete_step(lower_actions)
@@ -332,21 +367,24 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                 agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
                 agent.update_upper()
 
-                for i in range(config.N):
-                    agent.add_lower_memory(i, lower_states[i], lower_actions[i], lower_rewards[i],
-                                          next_states[i], done)
-                    agent.update_lower(i)
-                    if algo == 'dyna':
-                        model_stats = agent.update_model(i)
-                        if model_stats is not None:
-                            episode_model_losses.append(model_stats)
-                        plan_loss = agent.dyna_plan(i)
-                        episode_plan_calls += 1
-                        plan_info = agent.last_plan_info[i]
-                        if plan_info is not None:
-                            episode_plan_infos.append(dict(plan_info))
-                        if plan_loss is not None:
-                            episode_plan_losses.append(plan_loss)
+                if lower_transition_mode == 'decision_point':
+                    pending_lower = [
+                        (lower_states[i].copy(), lower_actions[i].copy(),
+                         float(lower_rewards[i]))
+                        for i in range(config.N)
+                    ]
+                    if done:
+                        for i in range(config.N):
+                            prev_state, prev_action, prev_reward = pending_lower[i]
+                            train_lower_transition(
+                                i, prev_state, prev_action, prev_reward,
+                                next_states[i], True)
+                        pending_lower = None
+                else:
+                    for i in range(config.N):
+                        train_lower_transition(
+                            i, lower_states[i], lower_actions[i], lower_rewards[i],
+                            next_states[i], done)
             else:
                 # Flat action selection (iDDPG / MADDPG)
                 actions = agent.act(states)
@@ -395,6 +433,15 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         plan_bellman_errors = [
             x['sample_bellman_error'] for x in planned_infos
             if x['sample_bellman_error'] is not None]
+        robust_scales = [
+            x['robust_scale'] for x in planned_infos
+            if x.get('robust_scale') is not None]
+        selected_fractions = [
+            x['selected_fraction'] for x in planned_infos
+            if x.get('selected_fraction') is not None]
+        plan_utilities = [
+            x['mean_utility'] for x in planned_infos
+            if x.get('mean_utility') is not None]
         episode_totals['dyna_plan_probability'] = (
             float(np.mean([x['plan_probability'] for x in eligible_infos]))
             if eligible_infos else 0.0)
@@ -405,6 +452,12 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
             float(np.mean(plan_sample_weights)) if plan_sample_weights else None)
         episode_totals['dyna_plan_bellman_error'] = (
             float(np.mean(plan_bellman_errors)) if plan_bellman_errors else None)
+        episode_totals['dyna_plan_robust_scale'] = (
+            float(np.mean(robust_scales)) if robust_scales else None)
+        episode_totals['dyna_plan_selected_fraction'] = (
+            float(np.mean(selected_fractions)) if selected_fractions else None)
+        episode_totals['dyna_plan_utility'] = (
+            float(np.mean(plan_utilities)) if plan_utilities else None)
         episode_metrics.append(episode_totals)
         agent.step_episode_schedulers()
 

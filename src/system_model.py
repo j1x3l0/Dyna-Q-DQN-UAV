@@ -83,8 +83,18 @@ class Config:
         self.dyna_bellman_beta = 2.0
         self.dyna_bellman_denom_floor = 1.0
         self.dyna_plan_probability_max = 0.25
+        self.dyna_plan_probability_min = 0.0
         self.dyna_plan_ramp_steps = 8_000
         self.dyna_model_update_lr_scale = 0.10
+        self.dyna_robust_scale_floor = 1.0
+        self.dyna_plan_keep_fraction = 0.50
+        self.dyna_anchor_alpha = 0.25
+        self.dyna_anchor_clip = 1.0
+        self.dyna_priority_candidate_multiplier = 4
+        # ``legacy`` stores the pre-upper state as the lower transition target.
+        # New decision-consistent experiments delay insertion until the next
+        # post-move lower decision state is available.
+        self.lower_transition_mode = 'legacy'
         # ee_ratio: received data + weighted RBS forwarding (historical default)
         # paper_xi: RBS-delivered data / total UAV energy (paper objective)
         # additive: throughput - communication energy (legacy ablation)

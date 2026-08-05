@@ -147,16 +147,31 @@ class HierarchicalAgent:
         self.dyna_model_error_threshold = float(getattr(config, 'dyna_model_error_threshold', 0.20))
         self.dyna_counterfactual_fraction = float(getattr(config, 'dyna_counterfactual_fraction', 0.25))
         self.dyna_planning_strategy = getattr(config, 'dyna_planning_strategy', 'state_gate')
-        if self.dyna_planning_strategy not in ('state_gate', 'bcad'):
+        if self.dyna_planning_strategy not in (
+                'state_gate', 'bcad', 'robust_budget', 'real_anchor',
+                'utility_priority'):
             raise ValueError(f"Unsupported dyna_planning_strategy: {self.dyna_planning_strategy}")
         self.dyna_bellman_beta = max(0.0, float(getattr(config, 'dyna_bellman_beta', 2.0)))
         self.dyna_bellman_denom_floor = max(
             1e-6, float(getattr(config, 'dyna_bellman_denom_floor', 1.0)))
         self.dyna_plan_probability_max = float(np.clip(
             getattr(config, 'dyna_plan_probability_max', 0.25), 0.0, 1.0))
+        self.dyna_plan_probability_min = float(np.clip(
+            getattr(config, 'dyna_plan_probability_min', 0.0), 0.0,
+            self.dyna_plan_probability_max))
         self.dyna_plan_ramp_steps = max(1, int(getattr(config, 'dyna_plan_ramp_steps', 8_000)))
         self.dyna_model_update_lr_scale = float(np.clip(
             getattr(config, 'dyna_model_update_lr_scale', 0.10), 0.0, 1.0))
+        self.dyna_robust_scale_floor = max(
+            1e-6, float(getattr(config, 'dyna_robust_scale_floor', 1.0)))
+        self.dyna_plan_keep_fraction = float(np.clip(
+            getattr(config, 'dyna_plan_keep_fraction', 0.50), 1e-3, 1.0))
+        self.dyna_anchor_alpha = float(np.clip(
+            getattr(config, 'dyna_anchor_alpha', 0.25), 0.0, 1.0))
+        self.dyna_anchor_clip = max(
+            0.0, float(getattr(config, 'dyna_anchor_clip', 1.0)))
+        self.dyna_priority_candidate_multiplier = max(
+            1, int(getattr(config, 'dyna_priority_candidate_multiplier', 4)))
         self.real_steps = np.zeros(num_agents, dtype=np.int64)
         self.model_error_ema = np.full(num_agents, np.inf, dtype=float)
         self.bellman_error_ema = np.full(num_agents, np.inf, dtype=float)
@@ -613,8 +628,11 @@ class HierarchicalAgent:
         }
     
     def _dyna_plan_batch(self, agent_idx, k):
-        batch_size = max(k, int(np.ceil(
+        base_batch_size = max(k, int(np.ceil(
             self.dyna_planning_batch_size * self.dyna_model_fraction)))
+        batch_size = base_batch_size
+        if self.dyna_planning_strategy == 'utility_priority':
+            batch_size *= self.dyna_priority_candidate_multiplier
         batch_size = min(batch_size, len(self.lower_memory[agent_idx]))
         indices = self.dyna_rng.choice(
             len(self.lower_memory[agent_idx]), batch_size, replace=False)
@@ -627,7 +645,7 @@ class HierarchicalAgent:
         counterfactual = np.zeros(batch_size, dtype=bool)
 
         if (self.planning_mode == 'model'
-                and self.dyna_planning_strategy != 'bcad'
+                and self.dyna_planning_strategy == 'state_gate'
                 and self.dyna_counterfactual_fraction > 0):
             with torch.no_grad():
                 q_np = self.lower_dqns[agent_idx](
@@ -681,7 +699,13 @@ class HierarchicalAgent:
 
         plan_bellman_error = None
         plan_sample_weight = 1.0
-        if self.dyna_planning_strategy == 'bcad' and self.planning_mode == 'model':
+        robust_scale_value = None
+        selected_fraction = 1.0
+        mean_utility = None
+        guarded_strategies = {
+            'bcad', 'robust_budget', 'real_anchor', 'utility_priority'}
+        if (self.dyna_planning_strategy in guarded_strategies
+                and self.planning_mode == 'model'):
             true_next_t = torch.as_tensor(true_next, device=self.device)
             true_reward_t = torch.as_tensor(true_rewards, device=self.device)
             with torch.no_grad():
@@ -692,14 +716,56 @@ class HierarchicalAgent:
                     ~true_masks, -torch.inf).max(dim=2).values
                 true_targets = true_reward_t.unsqueeze(1) + self.gamma * true_next_q * (
                     1 - done_t.unsqueeze(1))
-                target_error = (
-                    (targets - true_targets).abs()
-                    / (true_targets.abs() + self.dyna_bellman_denom_floor))
-                sample_weights = torch.exp(-self.dyna_bellman_beta * target_error).clamp_min(1e-3)
-            element_loss = F.smooth_l1_loss(chosen_q, targets, reduction='none')
-            loss = (element_loss * sample_weights).sum() / sample_weights.sum().clamp_min(1e-6)
+                if self.dyna_planning_strategy == 'bcad':
+                    target_error = (
+                        (targets - true_targets).abs()
+                        / (true_targets.abs() + self.dyna_bellman_denom_floor))
+                    sample_weights = torch.exp(
+                        -self.dyna_bellman_beta * target_error).clamp_min(1e-3)
+                    guarded_targets = targets
+                else:
+                    # A batch-level robust scale avoids exploding relative
+                    # errors when an individual real Bellman target is near 0.
+                    flat_targets = true_targets.reshape(-1)
+                    target_median = flat_targets.median()
+                    mad = (flat_targets - target_median).abs().median()
+                    robust_scale = torch.clamp(
+                        1.4826 * mad, min=self.dyna_robust_scale_floor)
+                    target_error = (targets - true_targets).abs() / robust_scale
+                    sample_weights = 1.0 / (1.0 + target_error.square())
+                    robust_scale_value = float(robust_scale.item())
+                    if self.dyna_planning_strategy in ('real_anchor', 'utility_priority'):
+                        max_delta = self.dyna_anchor_clip * robust_scale
+                        model_delta = (targets - true_targets).clamp(
+                            min=-max_delta, max=max_delta)
+                        guarded_targets = (
+                            true_targets + self.dyna_anchor_alpha * model_delta)
+                    else:
+                        guarded_targets = targets
+
+            selected = torch.arange(batch_size, device=self.device)
+            sample_error = target_error.mean(dim=1)
+            keep_count = max(1, int(np.ceil(
+                batch_size * self.dyna_plan_keep_fraction)))
+            if self.dyna_planning_strategy == 'robust_budget':
+                selected = torch.argsort(sample_error)[:keep_count]
+            elif self.dyna_planning_strategy == 'utility_priority':
+                with torch.no_grad():
+                    real_td_error = (chosen_q - true_targets).abs().mean(dim=1)
+                    utility = real_td_error / (1.0 + sample_error)
+                    selected = torch.argsort(utility, descending=True)[:keep_count]
+                    mean_utility = float(utility[selected].mean().item())
+
+            selected_fraction = float(selected.numel() / batch_size)
+            selected_q = chosen_q[selected]
+            selected_targets = guarded_targets[selected]
+            selected_weights = sample_weights[selected]
+            element_loss = F.smooth_l1_loss(
+                selected_q, selected_targets, reduction='none')
+            loss = ((element_loss * selected_weights).sum()
+                    / selected_weights.sum().clamp_min(1e-6))
             plan_bellman_error = float(target_error.mean().item())
-            plan_sample_weight = float(sample_weights.mean().item())
+            plan_sample_weight = float(selected_weights.mean().item())
         else:
             loss = nn.SmoothL1Loss()(chosen_q, targets)
 
@@ -708,7 +774,8 @@ class HierarchicalAgent:
         torch.nn.utils.clip_grad_norm_(self.lower_dqns[agent_idx].parameters(), self.clip_norm)
         optimizer = self.lower_optimizers[agent_idx]
         saved_lrs = [group['lr'] for group in optimizer.param_groups]
-        if self.dyna_planning_strategy == 'bcad':
+        if self.dyna_planning_strategy in (
+                'bcad', 'robust_budget', 'real_anchor', 'utility_priority'):
             for group, lr in zip(optimizer.param_groups, saved_lrs):
                 group['lr'] = lr * self.dyna_model_update_lr_scale
         optimizer.step()
@@ -720,6 +787,9 @@ class HierarchicalAgent:
                 'planned': 1.0,
                 'sample_weight': plan_sample_weight,
                 'sample_bellman_error': plan_bellman_error,
+                'robust_scale': robust_scale_value,
+                'selected_fraction': selected_fraction,
+                'mean_utility': mean_utility,
                 'loss': float(loss.item()),
             })
         return float(loss.item())
@@ -733,6 +803,9 @@ class HierarchicalAgent:
             'plan_probability': 0.0,
             'sample_weight': None,
             'sample_bellman_error': None,
+            'robust_scale': None,
+            'selected_fraction': None,
+            'mean_utility': None,
             'loss': None,
         }
         if self.dyna_k <= 0 or not self.models:
@@ -765,6 +838,21 @@ class HierarchicalAgent:
                 probability = self.dyna_plan_probability_max * ramp * trust
                 self.last_plan_info[agent_idx].update({
                     'trust': trust,
+                    'plan_probability': probability,
+                })
+                if self.dyna_rng.random() >= probability:
+                    return
+            elif self.dyna_planning_strategy in (
+                    'robust_budget', 'real_anchor', 'utility_priority'):
+                ramp_progress = max(
+                    0, int(self.real_steps[agent_idx]) - self.dyna_warmup_steps + 1)
+                ramp = min(1.0, ramp_progress / self.dyna_plan_ramp_steps)
+                probability = (
+                    self.dyna_plan_probability_min
+                    + (self.dyna_plan_probability_max
+                       - self.dyna_plan_probability_min) * ramp)
+                self.last_plan_info[agent_idx].update({
+                    'trust': 1.0,
                     'plan_probability': probability,
                 })
                 if self.dyna_rng.random() >= probability:
