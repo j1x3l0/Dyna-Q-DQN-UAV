@@ -1,7 +1,6 @@
 import logging
 import random
 import numpy as np
-import torch
 import os
 from numpy.random import SeedSequence
 from logging.handlers import RotatingFileHandler
@@ -69,6 +68,20 @@ class Config:
         self.d_soft = 10.0
         self.eta_soft = 5.0
         self.init_min_separation = 15.0
+        # ``hard_projection`` jointly projects UAV endpoints onto the safe set
+        # and removes collision penalties. ``penalty`` preserves legacy runs.
+        self.collision_constraint_mode = 'hard_projection'
+        self.safety_projection_max_iterations = 100
+        self.safety_projection_tolerance = 1e-6
+        self.upper_projection_loss_weight = 1.0
+        self.upper_noise_decay_episodes = 150
+        self.upper_direction_noise_initial = 0.15
+        self.upper_direction_noise_final = 0.02
+        self.upper_speed_noise_initial = 0.10
+        self.upper_speed_noise_final = 0.02
+        self.upper_schedule_noise_initial = 0.05
+        self.upper_schedule_noise_final = 0.01
+        self.evaluation_interval = 10
         self.dyna_k = 1
         self.dyna_warmup = 32
         self.dyna_warmup_steps = 25_600
@@ -100,8 +113,7 @@ class Config:
         # additive: throughput - communication energy (legacy ablation)
         self.reward_mode = 'ee_ratio'
 
-        # M4: state dimension derived from per-RB channel info
-        # pos(3) + buffer(1) + energy(1) + d_i0(1) + g_i per RB(F) + M*(energy(1)+buffer(1)+channel per RB(F))
+        # Local state derived from per-RB channel information.
         self.state_dim = 7 + self.F + self.M * (3 + self.F)
 
         # M7: target network update mode ('soft' or 'hard'); paper uses hard replace every 100 iters
@@ -128,7 +140,7 @@ class Config:
         logger.info(f"Config initialized: N={self.N}, M={self.M}, F={self.F}")
         logger.info(f"UAV params: v_max={self.v_max}, d_min={self.d_min}")
         logger.info(f"Reward params: gamma_forward={self.gamma_forward}, eta={self.eta}, eta1={self.eta1}, reward_scale={self.reward_scale}, P_0={self.P_0}, denom_epsilon={self.denom_epsilon}")
-        logger.info(f"Collision params: d_min={self.d_min}, d_soft={self.d_soft}, eta={self.eta}, eta_soft={self.eta_soft}, init_min_sep={self.init_min_separation}, boundary={self.boundary}")
+        logger.info(f"Collision params: mode={self.collision_constraint_mode}, d_min={self.d_min}, d_soft={self.d_soft}, eta={self.eta}, eta_soft={self.eta_soft}, init_min_sep={self.init_min_separation}, boundary={self.boundary}")
         logger.info(f"Spatial params: boundary={self.boundary}m, coverage_radius={self.coverage_radius}m")
         logger.info(f"Time slots: tau_f={self.tau_f}, tau_s={self.tau_s}, tau_d={self.tau_d}")
 
@@ -241,6 +253,8 @@ class Environment:
         self._rate_a = np.zeros((config.N, config.M), dtype=float)
         self._rate_b = np.zeros((config.N, config.M), dtype=float)
         self._pending_step = None
+        self.last_commanded_upper_actions = None
+        self.last_executed_upper_actions = None
         
         logger.info(f"Environment initialized: {config.N} UAVs, {config.M} GUs")
         logger.info("=" * 60)
@@ -292,6 +306,8 @@ class Environment:
         self.time_slot = 0
         self.last_step_info = None
         self._pending_step = None
+        self.last_commanded_upper_actions = None
+        self.last_executed_upper_actions = None
         self._refresh_channel_cache()
         self.calculate_rates()
         logger.info(f"Environment reset completed, time_slot={self.time_slot}")
@@ -418,6 +434,115 @@ class Environment:
                 masks[i, m, 2] = True
         return masks
 
+    def _clip_safe_positions(self, positions, origins):
+        """Apply the geofence and per-slot displacement limit."""
+        clipped = np.asarray(positions, dtype=float).copy()
+        b = self.config.boundary
+        clipped[:, 0] = np.clip(clipped[:, 0], -b, b)
+        clipped[:, 1] = np.clip(clipped[:, 1], -b, b)
+        clipped[:, 2] = np.clip(clipped[:, 2], 10.0, 150.0)
+
+        max_displacement = self.config.v_max * self.config.tau_f
+        displacements = clipped - origins
+        norms = np.linalg.norm(displacements, axis=1)
+        too_far = norms > max_displacement
+        if np.any(too_far):
+            clipped[too_far] = (
+                origins[too_far]
+                + displacements[too_far]
+                * (max_displacement / norms[too_far])[:, None]
+            )
+        return clipped
+
+    def _fallback_separation_axis(self, i, j):
+        """Return a deterministic 3-D direction for coincident UAV pairs."""
+        pair_id = i * self.config.N + j + 1
+        azimuth = pair_id * np.pi * (3.0 - np.sqrt(5.0))
+        elevation = ((pair_id % 3) - 1) * 0.35
+        axis = np.array([
+            np.cos(azimuth) * np.cos(elevation),
+            np.sin(azimuth) * np.cos(elevation),
+            np.sin(elevation),
+        ])
+        return axis / np.linalg.norm(axis)
+
+    def _project_safe_positions(self, proposed, origins):
+        """Project joint endpoints onto geofence, speed, and separation limits."""
+        positions = self._clip_safe_positions(proposed, origins)
+        tolerance = max(
+            0.0, float(getattr(self.config, 'safety_projection_tolerance', 1e-6)))
+        max_iterations = max(
+            1, int(getattr(self.config, 'safety_projection_max_iterations', 100)))
+        target_distance = self.config.d_min + tolerance
+
+        for _ in range(max_iterations):
+            corrections = np.zeros_like(positions)
+            max_violation = 0.0
+            for i in range(self.config.N):
+                for j in range(i + 1, self.config.N):
+                    delta = positions[i] - positions[j]
+                    distance = np.linalg.norm(delta)
+                    violation = target_distance - distance
+                    if violation <= 0.0:
+                        continue
+                    axis = (delta / distance if distance > tolerance
+                            else self._fallback_separation_axis(i, j))
+                    shift = 0.5 * violation
+                    corrections[i] += axis * shift
+                    corrections[j] -= axis * shift
+                    max_violation = max(max_violation, violation)
+
+            if max_violation <= 0.0:
+                return positions
+            positions = self._clip_safe_positions(
+                positions + corrections, origins)
+
+        min_distance = min(
+            np.linalg.norm(positions[i] - positions[j])
+            for i in range(self.config.N)
+            for j in range(i + 1, self.config.N)
+        ) if self.config.N > 1 else float('inf')
+        if min_distance < self.config.d_min - tolerance:
+            raise RuntimeError(
+                f"Unable to project UAV actions to d_min={self.config.d_min}: "
+                f"minimum distance remained {min_distance:.6f}")
+        return positions
+
+    def _reconstruct_executed_actions(
+            self, commanded_actions, origins, executed_positions,
+            safety_interventions):
+        """Return action vectors equivalent to the positions actually executed."""
+        executed_actions = np.asarray(commanded_actions, dtype=float).copy()
+        max_displacement = self.config.v_max * self.config.tau_f
+        tolerance = max(
+            0.0, float(getattr(self.config, 'safety_projection_tolerance', 1e-6)))
+
+        for i in np.flatnonzero(safety_interventions):
+            displacement = executed_positions[i] - origins[i]
+            distance = np.linalg.norm(displacement)
+            if distance > tolerance:
+                executed_actions[i, :3] = displacement / distance
+            speed_fraction = np.clip(
+                distance / max(max_displacement, self.config.denom_epsilon),
+                0.0,
+                1.0,
+            )
+            speed_sign = -1.0 if commanded_actions[i, 3] < 0.0 else 1.0
+            executed_actions[i, 3] = speed_sign * speed_fraction
+
+        executed_actions[:, 4] = np.clip(commanded_actions[:, 4], 0.0, 1.0)
+        return executed_actions
+
+    def get_last_upper_actions(self):
+        """Return defensive copies of the last commanded and executed actions."""
+        if (self.last_commanded_upper_actions is None
+                or self.last_executed_upper_actions is None):
+            raise RuntimeError("prepare_step must be called before reading upper actions")
+        return (
+            self.last_commanded_upper_actions.copy(),
+            self.last_executed_upper_actions.copy(),
+        )
+
     def prepare_step(self, upper_actions):
         """Apply all mobility decisions, then expose the post-move lower-layer state."""
         if self._pending_step is not None:
@@ -426,12 +551,47 @@ class Environment:
         if upper_actions.shape != (self.config.N, 5):
             raise ValueError(f"upper_actions must have shape {(self.config.N, 5)}, got {upper_actions.shape}")
 
-        speeds = np.zeros(self.config.N, dtype=float)
+        collision_mode = getattr(
+            self.config, 'collision_constraint_mode', 'penalty')
+        if collision_mode not in ('hard_projection', 'penalty'):
+            raise ValueError(
+                f"Unsupported collision_constraint_mode: {collision_mode}")
+
+        origins = np.asarray([uav.pos.copy() for uav in self.uavs])
+        commanded_speeds = np.zeros(self.config.N, dtype=float)
+        proposed_positions = np.zeros_like(origins)
         for i, uav in enumerate(self.uavs):
             direction = upper_actions[i, :3]
             direction = direction / (np.linalg.norm(direction) + 1e-6)
-            speeds[i] = np.clip(abs(upper_actions[i, 3]), 0.0, 1.0) * self.config.v_max
-            uav.move(direction, speeds[i])
+            commanded_speeds[i] = (
+                np.clip(abs(upper_actions[i, 3]), 0.0, 1.0)
+                * self.config.v_max)
+            proposed_positions[i] = (
+                origins[i] + direction * commanded_speeds[i] * self.config.tau_f)
+
+        proposed_positions = self._clip_safe_positions(
+            proposed_positions, origins)
+        if collision_mode == 'hard_projection':
+            executed_positions = self._project_safe_positions(
+                proposed_positions, origins)
+        else:
+            executed_positions = proposed_positions
+
+        corrections = np.linalg.norm(
+            executed_positions - proposed_positions, axis=1)
+        tolerance = max(
+            0.0, float(getattr(self.config, 'safety_projection_tolerance', 1e-6)))
+        safety_interventions = corrections > tolerance
+        executed_upper_actions = self._reconstruct_executed_actions(
+            upper_actions, origins, executed_positions, safety_interventions)
+        self.last_commanded_upper_actions = upper_actions.copy()
+        self.last_executed_upper_actions = executed_upper_actions.copy()
+        speeds = np.zeros(self.config.N, dtype=float)
+        for i, uav in enumerate(self.uavs):
+            displacement = executed_positions[i] - origins[i]
+            uav.pos = executed_positions[i]
+            uav.velocity = displacement / self.config.tau_f
+            speeds[i] = np.linalg.norm(uav.velocity)
 
         schedule_scores = np.clip(upper_actions[:, 4], 0.0, 1.0)
         eligible = np.flatnonzero(schedule_scores >= 0.5)
@@ -441,19 +601,24 @@ class Environment:
 
         collision_counts = np.zeros(self.config.N, dtype=int)
         collision_penalties = np.zeros(self.config.N, dtype=float)
+        nearest_distances = np.full(self.config.N, np.inf, dtype=float)
         for i in range(self.config.N):
             for j in range(i + 1, self.config.N):
                 distance = np.linalg.norm(self.uavs[i].pos - self.uavs[j].pos)
+                nearest_distances[i] = min(nearest_distances[i], distance)
+                nearest_distances[j] = min(nearest_distances[j], distance)
                 if distance < self.config.d_min:
-                    penalty = self.config.eta * (1 - distance / self.config.d_min)
                     collision_counts[i] += 1
                     collision_counts[j] += 1
-                elif distance < self.config.d_soft:
-                    penalty = self.config.eta_soft * (1 - distance / self.config.d_soft)
-                else:
-                    penalty = 0.0
-                collision_penalties[i] += penalty
-                collision_penalties[j] += penalty
+                if collision_mode == 'penalty':
+                    if distance < self.config.d_min:
+                        penalty = self.config.eta * (1 - distance / self.config.d_min)
+                    elif distance < self.config.d_soft:
+                        penalty = self.config.eta_soft * (1 - distance / self.config.d_soft)
+                    else:
+                        penalty = 0.0
+                    collision_penalties[i] += penalty
+                    collision_penalties[j] += penalty
 
         self._refresh_channel_cache()
         self.calculate_rates()
@@ -461,6 +626,11 @@ class Environment:
             'speeds': speeds,
             'collision_counts': collision_counts,
             'collision_penalties': collision_penalties,
+            'nearest_distances': nearest_distances,
+            'safety_interventions': safety_interventions,
+            'safety_correction_distances': corrections,
+            'commanded_upper_actions': self.last_commanded_upper_actions.copy(),
+            'executed_upper_actions': self.last_executed_upper_actions.copy(),
         }
         return self.get_state()
 
@@ -545,6 +715,12 @@ class Environment:
             metrics.append({
                 'collision_events': int(self._pending_step['collision_counts'][i]),
                 'collision_penalty': float(collision_penalty),
+                'safety_interventions': int(
+                    self._pending_step['safety_interventions'][i]),
+                'safety_correction_distance': float(
+                    self._pending_step['safety_correction_distances'][i]),
+                'nearest_uav_distance': float(
+                    self._pending_step['nearest_distances'][i]),
                 'data_received': float(data_received),
                 'data_sent_to_rbs': float(data_to_rbs),
                 'sensing_energy_consumed': float(sensing_energy),
@@ -562,13 +738,21 @@ class Environment:
             gu.update_buffer(sent_by_gu[m], self.rng.uniform(self.config.A_min, self.config.A_max))
 
         rewards = np.asarray([item['upper_reward'] for item in metrics], dtype=float)
-        total_keys = ('collision_events', 'collision_penalty', 'data_received',
-                      'data_sent_to_rbs', 'energy_consumed', 'flight_energy',
-                      'harvested_energy', 'lower_reward', 'upper_reward')
+        total_keys = ('collision_events', 'collision_penalty',
+                      'safety_interventions', 'safety_correction_distance',
+                      'data_received', 'data_sent_to_rbs', 'energy_consumed',
+                      'flight_energy', 'harvested_energy', 'lower_reward',
+                      'upper_reward')
         self.last_step_info = {
             'per_agent': metrics,
             'totals': {key: sum(item[key] for item in metrics) for key in total_keys},
+            'commanded_upper_actions': self._pending_step[
+                'commanded_upper_actions'].copy(),
+            'executed_upper_actions': self._pending_step[
+                'executed_upper_actions'].copy(),
         }
+        self.last_step_info['totals']['min_uav_distance'] = float(
+            np.min(self._pending_step['nearest_distances']))
         self.time_slot += 1
         done = self.time_slot >= 200
         self._pending_step = None

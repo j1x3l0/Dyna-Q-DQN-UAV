@@ -60,10 +60,13 @@ for ep in range(3):
         lower = dyna.lower_act(states)
         full = compose_full_actions(upper, lower, config.N)
         next_states, rewards, done = env.step(full)
+        _, executed_upper = env.get_last_upper_actions()
         step_info = env.last_step_info or {}
         ep_reward += float(np.sum(rewards))
         lower_rewards = extract_lower_rewards(step_info, rewards, config.N)
-        dyna.add_upper_memory(states, upper, rewards, next_states, done)
+        dyna.add_upper_memory(
+            states, upper, rewards, next_states, done,
+            executed_actions=executed_upper)
         for i in range(config.N):
             dyna.add_lower_memory(i, states[i], lower[i], lower_rewards[i], next_states[i], done)
         dyna.update_upper()

@@ -145,7 +145,18 @@ python scripts/run_test_training.py
 
 # 运行Dyna-Q验证实验（三种算法对比）
 python scripts/run_dyna_validation.py
+
+# 上层碰撞机制配对筛查（分别运行两种模式，产物使用独立 run tag）
+python scripts/run_full_benchmark.py --algos nodyna --seeds 42,123,2026,3407,888 --episodes 200 --reward-mode paper_xi --collision-mode penalty
+python scripts/run_full_benchmark.py --algos nodyna --seeds 42,123,2026,3407,888 --episodes 200 --reward-mode paper_xi --collision-mode hard_projection
+
+# 关闭 Actor 投影残差、仅保留 executed-action Critic 的消融
+python scripts/run_full_benchmark.py --algos nodyna --seeds 42,123,2026,3407,888 --episodes 200 --reward-mode paper_xi --collision-mode hard_projection --projection-loss-weight 0
 ```
+
+当前状态向量保持原有 53 维。上层方向、速度和调度探索噪声分别线性衰减；
+基准脚本默认每 10 个训练回合
+在固定的独立测试 seed 上运行一次无探索噪声的评估回合，并用评估曲线计算收敛回合。
 
 ### 结果分析
 
@@ -169,6 +180,13 @@ python scripts/analyze_convergence.py
 | Dyna-K | 5 | Dyna-Q规划步数 |
 | Dyna warm-up | 32 | 世界模型规划前所需的真实 replay 样本数 |
 | reward_mode | `ee_ratio`（默认） | 奖励目标；可选 `paper_xi`（论文 Ξ）或 `additive`（消融） |
+| collision_constraint_mode | `hard_projection`（默认） | 联合投影 UAV 动作以满足 `d_min`；`penalty` 保留历史碰撞惩罚基线 |
+| upper_projection_loss_weight | 1.0 | 上层 Actor 的安全投影残差损失权重；仅对发生投影的动作生效 |
+| upper_noise_decay_episodes | 150 | 上层分动作探索噪声线性衰减周期 |
+| direction noise | 0.15 → 0.02 | 三维航向动作的高斯噪声标准差 |
+| speed noise | 0.10 → 0.02 | 速度动作的高斯噪声标准差 |
+| schedule noise | 0.05 → 0.01 | 调度分数的高斯噪声标准差 |
+| evaluation_interval | 10 | 每隔 10 个训练回合运行一次独立无噪声评估 |
 
 ## 日志系统
 
@@ -191,6 +209,12 @@ DOI: https://doi.org/10.3390/s23104691
 ## 2026-08-05 Dyna 核心语义修复
 
 当前代码已修复速度缩放、时隙内信道重复采样、GU 状态槽错位、联合调度冲突和分层决策时序。状态维度由 46 调整为 53，历史检查点不再兼容；阶段 A--E 的结果只作为旧实现诊断材料，正式结果必须重新训练。Dyna 默认在 25,600 个真实时隙后且归一化验证误差 EMA 不高于 0.20 时启用，规划批次占参考批次的 25%。详见 `reports/Dyna核心修复说明_20260805.md`。
+
+## UAV 硬安全投影
+
+上层动作默认在环境中做联合安全投影，同时满足地理围栏、单时隙最大位移和 UAV 间最小距离 `d_min`。硬安全模式不再把碰撞惩罚混入通信奖励，并单独记录安全干预次数、动作修正距离和最小 UAV 间距。历史对照实验可将 `collision_constraint_mode` 设为 `penalty`。
+
+安全投影后，环境同时保留 Actor 的命令动作与实际执行动作。上层 Critic 使用实际执行动作训练，Actor 使用命令/执行差值形成可配置的投影残差损失；未发生安全干预的样本不施加该损失。Upper Actor、Upper Critic、Lower DQN 及其 target 网络共享按物理量量级定义的状态归一化，归一化 buffer 不写入 checkpoint，状态输入仍为 53 维。
 
 ## BCAD 样本效率改进
 

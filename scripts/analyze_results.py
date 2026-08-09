@@ -44,7 +44,7 @@ for run in bench_data['runs']:
 
 def load_agent(algo, ckpt_path, config):
     """Load an agent from checkpoint."""
-    state_dim, action_dim = 30, 4 + 2 * config.M + 1
+    state_dim, action_dim = config.state_dim, 4 + 2 * config.M + 1
     if algo == 'maddpg':
         agent = MADDPGAgent(state_dim, action_dim, config.N, config)
     elif algo == 'dyna':

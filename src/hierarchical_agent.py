@@ -49,8 +49,76 @@ def _lower_action_masks_from_states(states, config):
         covered,
     ], dim=2)
 
+
+def _build_state_scale(config, state_dim):
+    scale = [config.boundary, config.boundary, 100.0,
+             5000.0, 100.0, 1.0, 1500.0]
+    scale.extend([1e-3] * config.F)
+    for _ in range(config.M):
+        scale.extend([1.0, config.E_max, 5000.0])
+        scale.extend([1e-3] * config.F)
+    if len(scale) != state_dim:
+        raise ValueError(f"state scale has {len(scale)} values, expected {state_dim}")
+    return np.asarray(scale, dtype=np.float32)
+
+
+def _linear_noise_std(initial, final, episode, decay_episodes):
+    decay_episodes = max(1, int(decay_episodes))
+    progress = np.clip(float(episode) / decay_episodes, 0.0, 1.0)
+    return float(initial + (final - initial) * progress)
+
+
+def _upper_noise_stds(config, episode):
+    decay = getattr(config, 'upper_noise_decay_episodes', 150)
+    return {
+        'direction': _linear_noise_std(
+            getattr(config, 'upper_direction_noise_initial', 0.15),
+            getattr(config, 'upper_direction_noise_final', 0.02), episode, decay),
+        'speed': _linear_noise_std(
+            getattr(config, 'upper_speed_noise_initial', 0.10),
+            getattr(config, 'upper_speed_noise_final', 0.02), episode, decay),
+        'schedule': _linear_noise_std(
+            getattr(config, 'upper_schedule_noise_initial', 0.05),
+            getattr(config, 'upper_schedule_noise_final', 0.01), episode, decay),
+    }
+
+
+def _state_scale_tensor(state_dim, state_scale):
+    if state_scale is None:
+        return torch.ones(state_dim, dtype=torch.float32)
+    scale = torch.as_tensor(state_scale, dtype=torch.float32)
+    if scale.numel() != state_dim or torch.any(scale <= 0):
+        raise ValueError(f"state_scale must contain {state_dim} positive values")
+    return scale
+
+
+def _unpack_upper_transition(transition):
+    if len(transition) == 5:
+        state, commanded, reward, next_state, done = transition
+        return state, commanded, commanded, reward, next_state, done
+    if len(transition) == 6:
+        return transition
+    raise ValueError(f"Unsupported upper replay transition length: {len(transition)}")
+
+
+def _projection_residual_loss(
+        current_actions, commanded_actions, executed_actions, tolerance):
+    mobility_delta = executed_actions[:, :4] - commanded_actions[:, :4]
+    intervention_mask = torch.linalg.vector_norm(
+        mobility_delta, dim=1) > tolerance
+    if not torch.any(intervention_mask):
+        return current_actions[:, :4].sum() * 0.0
+
+    current_mobility = current_actions[intervention_mask, :4]
+    correction = mobility_delta[intervention_mask]
+    target = current_mobility.detach() + correction
+    target[:, :3] = target[:, :3].clamp(-1.0, 1.0)
+    target[:, 3] = target[:, 3].clamp(-1.0, 1.0)
+    return F.mse_loss(current_mobility, target)
+
 class UpperActor(nn.Module):
-    def __init__(self, state_dim, continuous_dim, discrete_dim, hidden_dim=64):
+    def __init__(self, state_dim, continuous_dim, discrete_dim, hidden_dim=64,
+                 state_scale=None):
         super(UpperActor, self).__init__()
         logger.info(f"Creating UpperActor: state_dim={state_dim}, continuous_dim={continuous_dim}, discrete_dim={discrete_dim}, hidden_dim={hidden_dim}")
         self.continuous_dim = continuous_dim
@@ -62,8 +130,12 @@ class UpperActor(nn.Module):
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
         self.sigmoid = nn.Sigmoid()
+        self.register_buffer(
+            'state_scale', _state_scale_tensor(state_dim, state_scale),
+            persistent=False)
 
     def forward(self, x):
+        x = x / self.state_scale
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         cont = self.tanh(self.fc3_cont(x))
@@ -71,15 +143,19 @@ class UpperActor(nn.Module):
         return torch.cat([cont, disc], dim=-1)
 
 class UpperCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim=64):
+    def __init__(self, state_dim, action_dim, hidden_dim=64, state_scale=None):
         super(UpperCritic, self).__init__()
         logger.info(f"Creating UpperCritic: state_dim={state_dim}, action_dim={action_dim}, hidden_dim={hidden_dim}")
         self.fc1 = nn.Linear(state_dim + action_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, 1)
         self.relu = nn.ReLU()
+        self.register_buffer(
+            'state_scale', _state_scale_tensor(state_dim, state_scale),
+            persistent=False)
     
     def forward(self, x, a):
+        x = x / self.state_scale
         x = torch.cat([x, a], dim=1)
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
@@ -87,15 +163,19 @@ class UpperCritic(nn.Module):
         return x
 
 class LowerDQN(nn.Module):
-    def __init__(self, state_dim, action_dim, hidden_dim=64):
+    def __init__(self, state_dim, action_dim, hidden_dim=64, state_scale=None):
         super(LowerDQN, self).__init__()
         logger.info(f"Creating LowerDQN: state_dim={state_dim}, action_dim={action_dim}, hidden_dim={hidden_dim}")
         self.fc1 = nn.Linear(state_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc3 = nn.Linear(hidden_dim, action_dim)
         self.relu = nn.ReLU()
+        self.register_buffer(
+            'state_scale', _state_scale_tensor(state_dim, state_scale),
+            persistent=False)
     
     def forward(self, x):
+        x = x / self.state_scale
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
         x = self.fc3(x)
@@ -131,12 +211,20 @@ class HierarchicalAgent:
         self.num_agents = num_agents
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.state_scale = _build_state_scale(config, state_dim)
+        self.global_state_scale = np.tile(self.state_scale, num_agents)
+        self.upper_projection_loss_weight = max(
+            0.0, float(getattr(config, 'upper_projection_loss_weight', 1.0)))
+        self.projection_tolerance = max(
+            0.0, float(getattr(config, 'safety_projection_tolerance', 1e-6)))
+        self.last_upper_update_info = None
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         torch.manual_seed(config.torch_seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(config.torch_seed)
         self.action_rng = config.rngs['action']
         self.replay_rng = config.rngs['replay']
+        self.upper_noise_episode = 0
         self.model_rng = config.rngs['model']
         self.dyna_rng = config.rngs['dyna']
         self.dyna_k = config.dyna_k if dyna_k is None else dyna_k
@@ -198,16 +286,26 @@ class HierarchicalAgent:
 
         logger.info("Creating upper-layer actor networks...")
         # M9: 前4维(direction+speed)tanh，第5维(scheduled)sigmoid
-        self.upper_actors = [UpperActor(state_dim, 4, 1).to(self.device) for _ in range(num_agents)]
+        self.upper_actors = [
+            UpperActor(state_dim, 4, 1, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
 
         logger.info("Creating upper-layer critic networks...")
-        self.upper_critics = [UpperCritic(state_dim * num_agents, 5 * num_agents).to(self.device) for _ in range(num_agents)]
+        self.upper_critics = [
+            UpperCritic(state_dim * num_agents, 5 * num_agents,
+                        state_scale=self.global_state_scale).to(self.device)
+            for _ in range(num_agents)]
 
         logger.info("Creating upper-layer target actor networks...")
-        self.target_upper_actors = [UpperActor(state_dim, 4, 1).to(self.device) for _ in range(num_agents)]
+        self.target_upper_actors = [
+            UpperActor(state_dim, 4, 1, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
 
         logger.info("Creating upper-layer target critic networks...")
-        self.target_upper_critics = [UpperCritic(state_dim * num_agents, 5 * num_agents).to(self.device) for _ in range(num_agents)]
+        self.target_upper_critics = [
+            UpperCritic(state_dim * num_agents, 5 * num_agents,
+                        state_scale=self.global_state_scale).to(self.device)
+            for _ in range(num_agents)]
 
         logger.info("Copying upper-layer weights to target networks...")
         for i in range(num_agents):
@@ -219,10 +317,14 @@ class HierarchicalAgent:
         self.upper_critic_optimizers = [optim.Adam(self.upper_critics[i].parameters(), lr=1e-3) for i in range(num_agents)]
 
         logger.info("Creating lower-layer DQN networks...")
-        self.lower_dqns = [LowerDQN(state_dim, 3 * config.M).to(self.device) for _ in range(num_agents)]
+        self.lower_dqns = [
+            LowerDQN(state_dim, 3 * config.M, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
 
         logger.info("Creating lower-layer target DQN networks...")
-        self.target_lower_dqns = [LowerDQN(state_dim, 3 * config.M).to(self.device) for _ in range(num_agents)]
+        self.target_lower_dqns = [
+            LowerDQN(state_dim, 3 * config.M, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
         
         logger.info("Copying lower-layer weights to target networks...")
         for i in range(num_agents):
@@ -233,8 +335,7 @@ class HierarchicalAgent:
         
         if self.dyna_k > 0:
             logger.info("Creating Dyna-Q model networks...")
-            state_scale = self._build_state_scale()
-            self.models = [Model(state_dim, 2 * config.M, state_scale).to(self.device)
+            self.models = [Model(state_dim, 2 * config.M, self.state_scale).to(self.device)
                            for _ in range(num_agents)]
             
             logger.info("Creating model optimizers...")
@@ -285,16 +386,8 @@ class HierarchicalAgent:
         logger.info("=" * 60)
 
     def _build_state_scale(self):
-        """Feature scales for the fixed-slot state; used only by the world model."""
-        scale = [self.config.boundary, self.config.boundary, 100.0,
-                 5000.0, 100.0, 1.0, 1500.0]
-        scale.extend([1e-3] * self.config.F)
-        for _ in range(self.config.M):
-            scale.extend([1.0, self.config.E_max, 5000.0])
-            scale.extend([1e-3] * self.config.F)
-        if len(scale) != self.state_dim:
-            raise ValueError(f"state scale has {len(scale)} values, expected {self.state_dim}")
-        return np.asarray(scale, dtype=np.float32)
+        """Feature scales shared by policy, value, DQN, and world-model networks."""
+        return _build_state_scale(self.config, self.state_dim)
     
     def upper_act(self, states, noise=True):
         logger.debug(f"upper_act() called: states shape={states.shape}, noise={noise}")
@@ -305,7 +398,13 @@ class HierarchicalAgent:
             action = self.upper_actors[i](state).detach().cpu().numpy()[0]
             
             if noise:
-                noise_val = self.action_rng.normal(0, 0.1, size=action.shape)
+                stds = _upper_noise_stds(
+                    self.config, self.upper_noise_episode)
+                noise_val = np.empty_like(action)
+                noise_val[:3] = self.action_rng.normal(
+                    0, stds['direction'], size=3)
+                noise_val[3] = self.action_rng.normal(0, stds['speed'])
+                noise_val[4] = self.action_rng.normal(0, stds['schedule'])
                 action += noise_val
                 logger.debug(f"Upper Agent {i} action with noise: noise_norm={np.linalg.norm(noise_val):.4f}")
             
@@ -319,7 +418,7 @@ class HierarchicalAgent:
         logger.debug(f"upper_act() completed: actions shape={actions_array.shape}")
         return actions_array
     
-    def lower_act(self, states, action_masks=None):
+    def lower_act(self, states, action_masks=None, explore=True):
         logger.debug(f"lower_act() called: states shape={states.shape}, epsilon={self.epsilon}")
         actions = []
         M = self.config.M
@@ -327,7 +426,7 @@ class HierarchicalAgent:
         for i in range(self.num_agents):
             state = torch.FloatTensor(states[i]).unsqueeze(0).to(self.device)
 
-            if self.action_rng.random() < self.epsilon:
+            if explore and self.action_rng.random() < self.epsilon:
                 # Random: pick one of {0,1,2} per GU, encode to 2M
                 if action_masks is None:
                     action_indices = self.action_rng.integers(0, 3, size=M)
@@ -368,9 +467,17 @@ class HierarchicalAgent:
         logger.debug(f"lower_act() completed: actions shape={actions_array.shape}")
         return actions_array
     
-    def add_upper_memory(self, states, actions, rewards, next_states, dones):
+    def add_upper_memory(self, states, actions, rewards, next_states, dones,
+                         executed_actions=None):
         logger.debug(f"add_upper_memory() called: states shape={states.shape}, rewards={rewards}, dones={dones}")
-        self.upper_memory.append((states, actions, rewards, next_states, dones))
+        commanded = np.asarray(actions, dtype=float).copy()
+        executed = (commanded.copy() if executed_actions is None else
+                    np.asarray(executed_actions, dtype=float).copy())
+        if executed.shape != commanded.shape:
+            raise ValueError(
+                f"executed_actions shape {executed.shape} != commanded shape {commanded.shape}")
+        self.upper_memory.append(
+            (states, commanded, executed, rewards, next_states, dones))
         logger.debug(f"Upper memory size: {len(self.upper_memory)}/{self.upper_memory.maxlen}")
     
     def add_lower_memory(self, agent_idx, state, action, reward, next_state, done):
@@ -388,26 +495,35 @@ class HierarchicalAgent:
         
         batch = self.replay_rng.choice(len(self.upper_memory), self.batch_size, replace=False)
         states_batch = []
-        actions_batch = []
+        commanded_actions_batch = []
+        executed_actions_batch = []
         rewards_batch = []
         next_states_batch = []
         dones_batch = []
         
         for idx in batch:
-            s, a, r, ns, d = self.upper_memory[idx]
+            s, commanded, executed, r, ns, d = _unpack_upper_transition(
+                self.upper_memory[idx])
             states_batch.append(s)
-            actions_batch.append(a)
+            commanded_actions_batch.append(commanded)
+            executed_actions_batch.append(executed)
             rewards_batch.append(r)
             next_states_batch.append(ns)
             dones_batch.append(d)
         
         states_batch = torch.FloatTensor(np.array(states_batch)).to(self.device)
-        actions_batch = torch.FloatTensor(np.array(actions_batch)).to(self.device)
+        commanded_actions_batch = torch.FloatTensor(
+            np.array(commanded_actions_batch)).to(self.device)
+        executed_actions_batch = torch.FloatTensor(
+            np.array(executed_actions_batch)).to(self.device)
         rewards_batch = torch.FloatTensor(np.array(rewards_batch)).to(self.device)
         next_states_batch = torch.FloatTensor(np.array(next_states_batch)).to(self.device)
         dones_batch = torch.FloatTensor(np.array(dones_batch)).to(self.device)
         
-        logger.debug(f"Upper batch tensors created: states={states_batch.shape}, actions={actions_batch.shape}")
+        logger.debug(
+            f"Upper batch tensors created: states={states_batch.shape}, "
+            f"executed_actions={executed_actions_batch.shape}")
+        update_info = []
         
         for i in range(self.num_agents):
             logger.debug(f"Updating upper-layer agent {i} networks...")
@@ -423,7 +539,7 @@ class HierarchicalAgent:
             y_i = rewards_batch[:, i].unsqueeze(1) + self.gamma * target_q * (1 - dones_batch.unsqueeze(1))
             
             states_cat = states_batch.view(self.batch_size, -1)
-            actions_cat = actions_batch.view(self.batch_size, -1)
+            actions_cat = executed_actions_batch.view(self.batch_size, -1)
             q_i = self.upper_critics[i](states_cat, actions_cat)
             
             critic_loss = nn.MSELoss()(q_i, y_i.detach())
@@ -440,10 +556,20 @@ class HierarchicalAgent:
                 if j == i:
                     current_actions.append(self.upper_actors[j](states_batch[:, j]))
                 else:
-                    current_actions.append(actions_batch[:, j].detach())
+                    current_actions.append(executed_actions_batch[:, j].detach())
+            current_agent_actions = current_actions[i]
             current_actions = torch.cat(current_actions, dim=1)
-            
-            actor_loss = -self.upper_critics[i](states_cat, current_actions).mean()
+
+            policy_loss = -self.upper_critics[i](states_cat, current_actions).mean()
+            projection_loss = _projection_residual_loss(
+                current_agent_actions,
+                commanded_actions_batch[:, i],
+                executed_actions_batch[:, i],
+                self.projection_tolerance,
+            )
+            actor_loss = (
+                policy_loss
+                + self.upper_projection_loss_weight * projection_loss)
             logger.debug(f"Upper Agent {i} actor loss: {actor_loss.item():.6f}")
             
             actor_loss.backward()
@@ -452,7 +578,13 @@ class HierarchicalAgent:
             
             self.soft_update(self.upper_actors[i], self.target_upper_actors[i])
             self.soft_update(self.upper_critics[i], self.target_upper_critics[i])
-        
+            update_info.append({
+                'critic_loss': float(critic_loss.item()),
+                'policy_loss': float(policy_loss.item()),
+                'projection_loss': float(projection_loss.item()),
+            })
+
+        self.last_upper_update_info = update_info
         logger.debug("update_upper() completed successfully!")
     
     def update_lower(self, agent_idx):
@@ -953,6 +1085,7 @@ class HierarchicalAgent:
             self.planning_errors[i]['state_err'] = 0.0
 
     def step_episode_schedulers(self):
+        self.upper_noise_episode += 1
         for i in range(self.num_agents):
             self.upper_actor_schedulers[i].step()
             self.upper_critic_schedulers[i].step()
@@ -979,6 +1112,7 @@ class HierarchicalAgent:
         checkpoint = {
             'episode': episode,
             'epsilon': self.epsilon,
+            'upper_noise_episode': self.upper_noise_episode,
             'real_steps': self.real_steps.copy(),
             'model_error_ema': self.model_error_ema.copy(),
             'bellman_error_ema': self.bellman_error_ema.copy(),
@@ -1024,6 +1158,8 @@ class HierarchicalAgent:
                 self.model_optimizers[i].load_state_dict(checkpoint['model_optimizers'][i])
                 self.model_schedulers[i].load_state_dict(checkpoint['model_schedulers'][i])
         self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        self.upper_noise_episode = checkpoint.get(
+            'upper_noise_episode', self.upper_noise_episode)
         self.real_steps = np.asarray(checkpoint.get('real_steps', self.real_steps), dtype=np.int64)
         self.model_error_ema = np.asarray(
             checkpoint.get('model_error_ema', self.model_error_ema), dtype=float)
@@ -1043,27 +1179,45 @@ class HierarchicalNoDynaAgent:
         self.num_agents = num_agents
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.state_scale = _build_state_scale(config, state_dim)
+        self.global_state_scale = np.tile(self.state_scale, num_agents)
+        self.upper_projection_loss_weight = max(
+            0.0, float(getattr(config, 'upper_projection_loss_weight', 1.0)))
+        self.projection_tolerance = max(
+            0.0, float(getattr(config, 'safety_projection_tolerance', 1e-6)))
+        self.last_upper_update_info = None
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         torch.manual_seed(config.torch_seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(config.torch_seed)
         self.action_rng = config.rngs['action']
         self.replay_rng = config.rngs['replay']
+        self.upper_noise_episode = 0
         
         logger.info(f"HierarchicalNoDyna params: num_agents={num_agents}, state_dim={state_dim}, action_dim={action_dim}, device={self.device}")
 
         logger.info("Creating upper-layer actor networks...")
         # M9: 前4维(direction+speed)tanh，第5维(scheduled)sigmoid
-        self.upper_actors = [UpperActor(state_dim, 4, 1).to(self.device) for _ in range(num_agents)]
+        self.upper_actors = [
+            UpperActor(state_dim, 4, 1, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
 
         logger.info("Creating upper-layer critic networks...")
-        self.upper_critics = [UpperCritic(state_dim * num_agents, 5 * num_agents).to(self.device) for _ in range(num_agents)]
+        self.upper_critics = [
+            UpperCritic(state_dim * num_agents, 5 * num_agents,
+                        state_scale=self.global_state_scale).to(self.device)
+            for _ in range(num_agents)]
 
         logger.info("Creating upper-layer target actor networks...")
-        self.target_upper_actors = [UpperActor(state_dim, 4, 1).to(self.device) for _ in range(num_agents)]
+        self.target_upper_actors = [
+            UpperActor(state_dim, 4, 1, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
         
         logger.info("Creating upper-layer target critic networks...")
-        self.target_upper_critics = [UpperCritic(state_dim * num_agents, 5 * num_agents).to(self.device) for _ in range(num_agents)]
+        self.target_upper_critics = [
+            UpperCritic(state_dim * num_agents, 5 * num_agents,
+                        state_scale=self.global_state_scale).to(self.device)
+            for _ in range(num_agents)]
         
         logger.info("Copying upper-layer weights to target networks...")
         for i in range(num_agents):
@@ -1075,10 +1229,14 @@ class HierarchicalNoDynaAgent:
         self.upper_critic_optimizers = [optim.Adam(self.upper_critics[i].parameters(), lr=1e-3) for i in range(num_agents)]
         
         logger.info("Creating lower-layer DQN networks...")
-        self.lower_dqns = [LowerDQN(state_dim, 3 * config.M).to(self.device) for _ in range(num_agents)]
+        self.lower_dqns = [
+            LowerDQN(state_dim, 3 * config.M, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
         
         logger.info("Creating lower-layer target DQN networks...")
-        self.target_lower_dqns = [LowerDQN(state_dim, 3 * config.M).to(self.device) for _ in range(num_agents)]
+        self.target_lower_dqns = [
+            LowerDQN(state_dim, 3 * config.M, state_scale=self.state_scale).to(self.device)
+            for _ in range(num_agents)]
         
         logger.info("Copying lower-layer weights to target networks...")
         for i in range(num_agents):
@@ -1130,7 +1288,13 @@ class HierarchicalNoDynaAgent:
             action = self.upper_actors[i](state).detach().cpu().numpy()[0]
             
             if noise:
-                noise_val = self.action_rng.normal(0, 0.1, size=action.shape)
+                stds = _upper_noise_stds(
+                    self.config, self.upper_noise_episode)
+                noise_val = np.empty_like(action)
+                noise_val[:3] = self.action_rng.normal(
+                    0, stds['direction'], size=3)
+                noise_val[3] = self.action_rng.normal(0, stds['speed'])
+                noise_val[4] = self.action_rng.normal(0, stds['schedule'])
                 action += noise_val
             
             action[:4] = np.clip(action[:4], -1, 1)
@@ -1140,7 +1304,7 @@ class HierarchicalNoDynaAgent:
         actions_array = np.array(actions)
         return actions_array
     
-    def lower_act(self, states, action_masks=None):
+    def lower_act(self, states, action_masks=None, explore=True):
         logger.debug(f"lower_act() called: states shape={states.shape}, epsilon={self.epsilon}")
         actions = []
         M = self.config.M
@@ -1148,7 +1312,7 @@ class HierarchicalNoDynaAgent:
         for i in range(self.num_agents):
             state = torch.FloatTensor(states[i]).unsqueeze(0).to(self.device)
 
-            if self.action_rng.random() < self.epsilon:
+            if explore and self.action_rng.random() < self.epsilon:
                 # Random: pick one of {0,1,2} per GU, encode to 2M
                 if action_masks is None:
                     action_indices = self.action_rng.integers(0, 3, size=M)
@@ -1179,8 +1343,16 @@ class HierarchicalNoDynaAgent:
         actions_array = np.array(actions)
         return actions_array
     
-    def add_upper_memory(self, states, actions, rewards, next_states, dones):
-        self.upper_memory.append((states, actions, rewards, next_states, dones))
+    def add_upper_memory(self, states, actions, rewards, next_states, dones,
+                         executed_actions=None):
+        commanded = np.asarray(actions, dtype=float).copy()
+        executed = (commanded.copy() if executed_actions is None else
+                    np.asarray(executed_actions, dtype=float).copy())
+        if executed.shape != commanded.shape:
+            raise ValueError(
+                f"executed_actions shape {executed.shape} != commanded shape {commanded.shape}")
+        self.upper_memory.append(
+            (states, commanded, executed, rewards, next_states, dones))
     
     def add_lower_memory(self, agent_idx, state, action, reward, next_state, done):
         self.lower_memory[agent_idx].append((state, action, reward, next_state, done))
@@ -1191,25 +1363,32 @@ class HierarchicalNoDynaAgent:
         
         batch = self.replay_rng.choice(len(self.upper_memory), self.batch_size, replace=False)
         states_batch = []
-        actions_batch = []
+        commanded_actions_batch = []
+        executed_actions_batch = []
         rewards_batch = []
         next_states_batch = []
         dones_batch = []
         
         for idx in batch:
-            s, a, r, ns, d = self.upper_memory[idx]
+            s, commanded, executed, r, ns, d = _unpack_upper_transition(
+                self.upper_memory[idx])
             states_batch.append(s)
-            actions_batch.append(a)
+            commanded_actions_batch.append(commanded)
+            executed_actions_batch.append(executed)
             rewards_batch.append(r)
             next_states_batch.append(ns)
             dones_batch.append(d)
         
         states_batch = torch.FloatTensor(np.array(states_batch)).to(self.device)
-        actions_batch = torch.FloatTensor(np.array(actions_batch)).to(self.device)
+        commanded_actions_batch = torch.FloatTensor(
+            np.array(commanded_actions_batch)).to(self.device)
+        executed_actions_batch = torch.FloatTensor(
+            np.array(executed_actions_batch)).to(self.device)
         rewards_batch = torch.FloatTensor(np.array(rewards_batch)).to(self.device)
         next_states_batch = torch.FloatTensor(np.array(next_states_batch)).to(self.device)
         dones_batch = torch.FloatTensor(np.array(dones_batch)).to(self.device)
         
+        update_info = []
         for i in range(self.num_agents):
             target_next_actions = []
             for j in range(self.num_agents):
@@ -1222,7 +1401,7 @@ class HierarchicalNoDynaAgent:
             y_i = rewards_batch[:, i].unsqueeze(1) + self.gamma * target_q * (1 - dones_batch.unsqueeze(1))
             
             states_cat = states_batch.view(self.batch_size, -1)
-            actions_cat = actions_batch.view(self.batch_size, -1)
+            actions_cat = executed_actions_batch.view(self.batch_size, -1)
             q_i = self.upper_critics[i](states_cat, actions_cat)
             
             critic_loss = nn.MSELoss()(q_i, y_i.detach())
@@ -1238,10 +1417,20 @@ class HierarchicalNoDynaAgent:
                 if j == i:
                     current_actions.append(self.upper_actors[j](states_batch[:, j]))
                 else:
-                    current_actions.append(actions_batch[:, j].detach())
+                    current_actions.append(executed_actions_batch[:, j].detach())
+            current_agent_actions = current_actions[i]
             current_actions = torch.cat(current_actions, dim=1)
-            
-            actor_loss = -self.upper_critics[i](states_cat, current_actions).mean()
+
+            policy_loss = -self.upper_critics[i](states_cat, current_actions).mean()
+            projection_loss = _projection_residual_loss(
+                current_agent_actions,
+                commanded_actions_batch[:, i],
+                executed_actions_batch[:, i],
+                self.projection_tolerance,
+            )
+            actor_loss = (
+                policy_loss
+                + self.upper_projection_loss_weight * projection_loss)
             
             actor_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.upper_actors[i].parameters(), self.clip_norm)
@@ -1249,6 +1438,12 @@ class HierarchicalNoDynaAgent:
             
             self.soft_update(self.upper_actors[i], self.target_upper_actors[i])
             self.soft_update(self.upper_critics[i], self.target_upper_critics[i])
+            update_info.append({
+                'critic_loss': float(critic_loss.item()),
+                'policy_loss': float(policy_loss.item()),
+                'projection_loss': float(projection_loss.item()),
+            })
+        self.last_upper_update_info = update_info
     
     def update_lower(self, agent_idx):
         if len(self.lower_memory[agent_idx]) < self.batch_size:
@@ -1300,6 +1495,7 @@ class HierarchicalNoDynaAgent:
         self.soft_update(self.lower_dqns[agent_idx], self.target_lower_dqns[agent_idx])
 
     def step_episode_schedulers(self):
+        self.upper_noise_episode += 1
         for i in range(self.num_agents):
             self.upper_actor_schedulers[i].step()
             self.upper_critic_schedulers[i].step()
@@ -1318,6 +1514,7 @@ class HierarchicalNoDynaAgent:
         checkpoint = {
             'episode': episode,
             'epsilon': self.epsilon,
+            'upper_noise_episode': self.upper_noise_episode,
             'upper_actors': {i: self.upper_actors[i].state_dict() for i in range(self.num_agents)},
             'target_upper_actors': {i: self.target_upper_actors[i].state_dict() for i in range(self.num_agents)},
             'upper_critics': {i: self.upper_critics[i].state_dict() for i in range(self.num_agents)},
@@ -1350,6 +1547,8 @@ class HierarchicalNoDynaAgent:
             self.upper_critic_schedulers[i].load_state_dict(checkpoint['upper_critic_schedulers'][i])
             self.lower_schedulers[i].load_state_dict(checkpoint['lower_schedulers'][i])
         self.epsilon = checkpoint.get('epsilon', self.epsilon)
+        self.upper_noise_episode = checkpoint.get(
+            'upper_noise_episode', self.upper_noise_episode)
         logger.info(f"Checkpoint loaded from {filepath} (episode {checkpoint['episode']}, epsilon={self.epsilon:.4f})")
         return checkpoint['episode']
 

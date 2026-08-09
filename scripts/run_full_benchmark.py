@@ -140,6 +140,10 @@ class RunResult:
     episode_metrics: List[dict]
     duration: float
     checkpoint_episodes: List[int] = field(default_factory=list)
+    eval_episodes: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=int))
+    eval_rewards: np.ndarray = field(
+        default_factory=lambda: np.array([], dtype=float))
 
 
 class EarlyStoppingTracker:
@@ -238,6 +242,29 @@ def _run_single_worker(gpu_id: int, algo: str, seed: int,
 # ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
+def run_evaluation_episode(agent, env: Environment, algo: str, case: int) -> float:
+    """Run one policy-only episode without exploration or replay updates."""
+    states = env.reset(case)
+    episode_reward = 0.0
+    while True:
+        if is_hierarchical(algo):
+            upper_actions = agent.upper_act(states, noise=False)
+            lower_states = env.prepare_step(upper_actions)
+            lower_actions = agent.lower_act(
+                lower_states,
+                action_masks=env.get_lower_action_masks(),
+                explore=False,
+            )
+            next_states, rewards, done = env.complete_step(lower_actions)
+        else:
+            actions = agent.act(states, noise=False)
+            next_states, rewards, done = env.step(actions)
+        episode_reward += float(np.sum(rewards))
+        states = next_states
+        if done:
+            return episode_reward
+
+
 def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                           case: int = DEFAULT_CASE) -> RunResult:
     """Train one algorithm for one seed with early stopping and checkpointing.
@@ -260,10 +287,21 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
     for key, val in config_override.items():
         setattr(config, key, val)
     env = Environment(config)
+
+    def create_eval_environment():
+        # Recreate the same held-out stochastic scenario at every checkpoint,
+        # keeping both training RNGs and evaluation conditions comparable.
+        eval_config = Config(seed=seed + 1_000_003)
+        for key, val in config_override.items():
+            setattr(eval_config, key, val)
+        return Environment(eval_config)
     variant_tag = (
         f'_k{config.dyna_k}_ws{config.dyna_warmup_steps}' if algo == 'dyna' else ''
     )
-    run_tag = f'{algo}_{config.reward_mode}{variant_tag}{run_tag_suffix}_seed{seed}'
+    collision_tag = f'_c{config.collision_constraint_mode}'
+    run_tag = (
+        f'{algo}_{config.reward_mode}{collision_tag}'
+        f'{variant_tag}{run_tag_suffix}_seed{seed}')
     logger, _ = setup_training_logger(run_tag)
 
     state_dim, action_dim = get_state_action_dims(config)
@@ -281,17 +319,17 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
 
     # Metrics accumulators
     rewards_history = []
-    metric_keys = (
+    eval_episodes = []
+    eval_rewards = []
+    sum_metric_keys = (
         'collision_events', 'collision_penalty',
+        'safety_interventions', 'safety_correction_distance',
         'data_received', 'data_sent_to_rbs',
         'energy_consumed', 'flight_energy', 'harvested_energy',
     )
-    totals = {
-        'collision_events': 0.0, 'collision_penalty': 0.0,
-        'data_received': 0.0, 'data_sent_to_rbs': 0.0,
-        'energy_consumed': 0.0, 'flight_energy': 0.0,
-        'harvested_energy': 0.0,
-    }
+    min_metric_keys = ('min_uav_distance',)
+    totals = {key: 0.0 for key in sum_metric_keys}
+    totals.update({key: float('inf') for key in min_metric_keys})
     episode_metrics = []
     checkpoint_episodes = []
     stopped_early = False
@@ -315,7 +353,8 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
     for episode in range(max_eps):
         states = env.reset(case)
         episode_reward = 0.0
-        episode_totals = {key: 0.0 for key in metric_keys}
+        episode_totals = {key: 0.0 for key in sum_metric_keys}
+        episode_totals.update({key: float('inf') for key in min_metric_keys})
         episode_model_losses = []
         episode_plan_losses = []
         episode_plan_infos = []
@@ -345,6 +384,7 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                 # Hierarchical action selection
                 upper_actions = agent.upper_act(states)
                 lower_states = env.prepare_step(upper_actions)
+                _, executed_upper_actions = env.get_last_upper_actions()
 
                 # The lower controller acts on the post-move state.  Its true
                 # successor is therefore the next post-move state, not the
@@ -364,7 +404,9 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                 step_info = env.last_step_info or {}
                 lower_rewards = extract_lower_rewards(step_info, rewards, config.N)
 
-                agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
+                agent.add_upper_memory(
+                    states, upper_actions, rewards, next_states, done,
+                    executed_actions=executed_upper_actions)
                 agent.update_upper()
 
                 if lower_transition_mode == 'decision_point':
@@ -395,11 +437,16 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
                 agent.update()
 
             episode_reward += float(np.sum(rewards))
-            for key in totals:
+            for key in sum_metric_keys:
                 val = step_info.get('totals', {}).get(key, 0.0)
                 value = float(val) if val is not None else 0.0
                 totals[key] += value
                 episode_totals[key] += value
+            for key in min_metric_keys:
+                val = step_info.get('totals', {}).get(key, float('inf'))
+                value = float(val) if val is not None else float('inf')
+                totals[key] = min(totals[key], value)
+                episode_totals[key] = min(episode_totals[key], value)
 
             states = next_states
             if done:
@@ -459,6 +506,17 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         episode_totals['dyna_plan_utility'] = (
             float(np.mean(plan_utilities)) if plan_utilities else None)
         episode_metrics.append(episode_totals)
+
+        evaluation_interval = max(
+            1, int(getattr(config, 'evaluation_interval', 10)))
+        if (episode + 1) % evaluation_interval == 0:
+            eval_reward = run_evaluation_episode(
+                agent, create_eval_environment(), algo, case)
+            eval_episodes.append(episode + 1)
+            eval_rewards.append(eval_reward)
+            logger.info(
+                f"Ep {episode + 1:5d} | noise-free eval reward={eval_reward:10.2f}")
+
         agent.step_episode_schedulers()
 
         if needs_epsilon_decay(algo):
@@ -519,6 +577,8 @@ def run_single_experiment(algo: str, seed: int, config_override: dict = None,
         episode_metrics=episode_metrics,
         duration=duration,
         checkpoint_episodes=checkpoint_episodes,
+        eval_episodes=np.asarray(eval_episodes, dtype=int),
+        eval_rewards=np.asarray(eval_rewards, dtype=float),
     )
 
 
@@ -543,6 +603,23 @@ def compute_convergence_episode(rewards: np.ndarray, window: int = 100, threshol
     return float('nan')
 
 
+def compute_evaluation_convergence(
+        eval_rewards: np.ndarray, eval_episodes: np.ndarray,
+        window: int = 3, threshold: float = 0.9) -> float:
+    """Return the real episode index where noise-free evaluation reaches target."""
+    eval_rewards = np.asarray(eval_rewards, dtype=float)
+    eval_episodes = np.asarray(eval_episodes, dtype=int)
+    if eval_rewards.size < window or eval_rewards.size != eval_episodes.size:
+        return float('nan')
+    rolling = np.convolve(
+        eval_rewards, np.ones(window, dtype=float) / window, mode='valid')
+    target = threshold * float(np.max(rolling))
+    reached = np.flatnonzero(rolling >= target)
+    if reached.size == 0:
+        return float('nan')
+    return float(eval_episodes[int(reached[0]) + window - 1])
+
+
 def summarize(values: list) -> Tuple[float, float, float]:
     arr = np.asarray(values, dtype=float)
     mean = float(arr.mean())
@@ -563,7 +640,10 @@ def aggregate_results(run_results: List[RunResult]) -> dict:
         final_rewards = [float(np.mean(r[-50:])) if len(r) >= 50 else float(np.mean(r))
                         for r in aligned_rewards]
 
-        conv_episodes = [compute_convergence_episode(r.rewards) for r in algo_runs]
+        conv_episodes = [
+            compute_evaluation_convergence(r.eval_rewards, r.eval_episodes)
+            for r in algo_runs
+        ]
         conv_valid = [c for c in conv_episodes if not np.isnan(c)]
         early_rewards = [
             float(np.mean(r.rewards[:min(500, len(r.rewards))])) if len(r.rewards) > 0 else 0.0
@@ -581,6 +661,9 @@ def aggregate_results(run_results: List[RunResult]) -> dict:
             'conv_episode': summarize(conv_valid) if conv_valid else (float('nan'), 0.0, 0.0),
             'early_reward_500': summarize(early_rewards),
             'collision_events_avg': summarize([r.metrics['collision_events'] / r.episodes_completed for r in algo_runs]),
+            'safety_interventions_avg': summarize([r.metrics['safety_interventions'] / r.episodes_completed for r in algo_runs]),
+            'safety_correction_avg': summarize([r.metrics['safety_correction_distance'] / r.episodes_completed for r in algo_runs]),
+            'min_uav_distance': summarize([r.metrics['min_uav_distance'] for r in algo_runs]),
             'data_received_avg': summarize([r.metrics['data_received'] / r.episodes_completed for r in algo_runs]),
             'data_sent_avg': summarize([r.metrics['data_sent_to_rbs'] / r.episodes_completed for r in algo_runs]),
             'energy_avg': summarize([r.metrics['energy_consumed'] / r.episodes_completed for r in algo_runs]),
@@ -642,6 +725,12 @@ def write_report(run_results: List[RunResult], summary_rows: list,
         lines.append(f"  Final reward (last 50): {mean:.2f} +- {std:.2f} (95% CI: +-{ci95:.2f})")
         mean, std, _ = row['collision_events_avg']
         lines.append(f"  Collision events/ep: {mean:.2f} +- {std:.2f}")
+        mean, std, _ = row['safety_interventions_avg']
+        lines.append(f"  Safety interventions/ep: {mean:.2f} +- {std:.2f}")
+        mean, std, _ = row['safety_correction_avg']
+        lines.append(f"  Safety correction distance/ep: {mean:.2f} +- {std:.2f} m")
+        mean, std, _ = row['min_uav_distance']
+        lines.append(f"  Minimum UAV distance: {mean:.2f} +- {std:.2f} m")
         mean, std, _ = row['data_received_avg']
         lines.append(f"  Data received/ep: {mean:.2f} +- {std:.2f}")
         mean, std, _ = row['data_sent_avg']
@@ -652,7 +741,8 @@ def write_report(run_results: List[RunResult], summary_rows: list,
         lines.append(f"  Duration (s): {mean:.1f} +- {std:.1f}")
         conv_mean, conv_std, _ = row['conv_episode']
         conv_str = f"{conv_mean:.0f} +- {conv_std:.0f}" if not np.isnan(conv_mean) else "N/A"
-        lines.append(f"  Convergence (eps to 90% peak): {conv_str}")
+        lines.append(
+            f"  Noise-free eval convergence (eps to 90% peak): {conv_str}")
         early_mean, early_std, _ = row['early_reward_500']
         lines.append(f"  Early reward (first 500 eps): {early_mean:.2f} +- {early_std:.2f}")
 
@@ -722,6 +812,8 @@ def write_report(run_results: List[RunResult], summary_rows: list,
                 'metrics': r.metrics,
                 'episode_metrics': r.episode_metrics,
                 'rewards': r.rewards.tolist(),
+                'eval_episodes': r.eval_episodes.tolist(),
+                'eval_rewards': r.eval_rewards.tolist(),
             }
             for r in run_results
         ],
@@ -840,6 +932,17 @@ def parse_args():
                         help='Override maximum episodes for every selected algorithm')
     parser.add_argument('--reward-mode', choices=('ee_ratio', 'paper_xi', 'additive'),
                         default='ee_ratio', help='Environment upper reward objective')
+    parser.add_argument(
+        '--collision-mode',
+        choices=('hard_projection', 'penalty'),
+        default='hard_projection',
+        help='UAV collision handling: hard safety projection or legacy penalty')
+    parser.add_argument(
+        '--projection-loss-weight', type=float, default=1.0,
+        help='Actor executed-action projection residual weight (default: 1.0)')
+    parser.add_argument(
+        '--eval-interval', type=int, default=10,
+        help='Run one noise-free evaluation episode every N training episodes')
     parser.add_argument('--gpu-ids', type=str, default='0,1',
                         help='Comma-separated physical GPU IDs used by workers')
     parser.add_argument('--dyna-k', type=str, default=None,
@@ -853,9 +956,10 @@ def main():
     seeds = [int(s.strip()) for s in args.seeds.split(',')]
     dyna_k_values = [int(k) for k in args.dyna_k.split(',')] if args.dyna_k else [None]
     gpu_ids = [int(g.strip()) for g in args.gpu_ids.split(',')]
-    if args.episodes is not None:
-        for algo in algos:
-            ALGO_CONFIGS[algo]['max_episodes'] = args.episodes
+    if args.episodes is not None and args.episodes <= 0:
+        raise ValueError('--episodes must be positive')
+    if args.eval_interval <= 0:
+        raise ValueError('--eval-interval must be positive')
 
     print(f"{'='*60}")
     print(f"UAV DRL Full Benchmark")
@@ -864,6 +968,9 @@ def main():
     print(f"Seeds: {seeds}")
     print(f"Case: {args.case}")
     print(f"Reward mode: {args.reward_mode}")
+    print(f"Collision mode: {args.collision_mode}")
+    print(f"Projection loss weight: {args.projection_loss_weight}")
+    print(f"Noise-free evaluation interval: {args.eval_interval}")
     print(f"GPU IDs: {gpu_ids}")
     if args.dyna_k:
         print(f"Dyna-K sweep: {dyna_k_values}")
@@ -875,7 +982,14 @@ def main():
     # Build task queue
     tasks = []
     for k in dyna_k_values:
-        co = {'reward_mode': args.reward_mode}
+        co = {
+            'reward_mode': args.reward_mode,
+            'collision_constraint_mode': args.collision_mode,
+            'upper_projection_loss_weight': args.projection_loss_weight,
+            'evaluation_interval': args.eval_interval,
+        }
+        if args.episodes is not None:
+            co['_max_episodes'] = args.episodes
         k_tag = ''
         if k is not None:
             co['dyna_k'] = k

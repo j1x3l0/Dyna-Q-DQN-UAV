@@ -102,8 +102,11 @@ def run_experiment(algo: str, seed: int, reward_mode: str, episodes: int, case: 
             ep_metrics['action_decisions'] += len(actions)
 
             if is_hier:
+                _, executed_upper_actions = env.get_last_upper_actions()
                 lower_rewards = extract_lower_rewards(step_info, rewards, config.N)
-                agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
+                agent.add_upper_memory(
+                    states, upper_actions, rewards, next_states, done,
+                    executed_actions=executed_upper_actions)
                 agent.update_upper()
                 for i in range(config.N):
                     agent.add_lower_memory(i, states[i], lower_actions[i], lower_rewards[i],

@@ -48,12 +48,15 @@ def run_episode(planning_mode, seed=42, episodes=2):
         while True:
             upper_actions = agent.upper_act(states)
             lower_states = env.prepare_step(upper_actions)
+            _, executed_upper_actions = env.get_last_upper_actions()
             lower_actions = agent.lower_act(
                 lower_states, action_masks=env.get_lower_action_masks())
             next_states, rewards, done = env.complete_step(lower_actions)
             step_info = env.last_step_info or {}
             lower_rewards = extract_lower_rewards(step_info, rewards, config.N)
-            agent.add_upper_memory(states, upper_actions, rewards, next_states, done)
+            agent.add_upper_memory(
+                states, upper_actions, rewards, next_states, done,
+                executed_actions=executed_upper_actions)
             agent.update_upper()
             for i in range(config.N):
                 agent.add_lower_memory(i, lower_states[i], lower_actions[i], lower_rewards[i],
